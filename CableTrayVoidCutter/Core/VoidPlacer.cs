@@ -300,7 +300,11 @@ public static class VoidPlacer
 
     private static void EnsureSymbolActive(Document doc, FamilySymbol sym)
     {
-        if (!sym.IsActive) sym.Activate();
+        if (!sym.IsActive)
+        {
+            sym.Activate();
+            doc.Regenerate(); // required so the activated symbol is usable immediately
+        }
     }
 
     private static XYZ GetCenter(BoundingBoxXYZ bb) =>

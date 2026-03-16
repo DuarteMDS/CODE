@@ -193,18 +193,26 @@ public class MainViewModel : INotifyPropertyChanged
             FamilySymbol? wallSym = null;
             FamilySymbol? beamSym = null;
 
-            using var tx = new Transaction(_doc, "CableTray Void Cutter – Place Voids");
-            tx.Start();
+            // Load families in their own committed transaction so the symbols
+            // are fully available to the document before placement begins.
+            using (var loadTx = new Transaction(_doc, "Load Void Families"))
+            {
+                loadTx.Start();
+                if (SelectedWallFamily is not null)
+                    wallSym = VoidPlacer.LoadFamily(_doc, SelectedWallFamily.FilePath);
+                if (SelectedBeamFamily is not null)
+                    beamSym = VoidPlacer.LoadFamily(_doc, SelectedBeamFamily.FilePath);
+                loadTx.Commit();
+            }
 
-            if (SelectedWallFamily is not null)
-                wallSym = VoidPlacer.LoadFamily(_doc, SelectedWallFamily.FilePath);
-            if (SelectedBeamFamily is not null)
-                beamSym = VoidPlacer.LoadFamily(_doc, SelectedBeamFamily.FilePath);
-
-            var summary = VoidPlacer.PlaceVoids(
-                _doc, ClashResults, marginFeet, wallSym, beamSym);
-
-            tx.Commit();
+            string summary;
+            using (var tx = new Transaction(_doc, "CableTray Void Cutter – Place Voids"))
+            {
+                tx.Start();
+                summary = VoidPlacer.PlaceVoids(
+                    _doc, ClashResults, marginFeet, wallSym, beamSym);
+                tx.Commit();
+            }
 
             StatusMessage = "Done.";
             MessageBox.Show(summary, "Cable Tray Void Cutter",
@@ -264,10 +272,49 @@ public class MainViewModel : INotifyPropertyChanged
 
             _uiDoc.Selection.SetElementIds(ids);
 
-            // Zoom the active view to the selected elements
+            // Zoom the active view to the bounding box of the selected elements
             var uiView = _uiDoc.GetOpenUIViews()
                 .FirstOrDefault(v => v.ViewId == _uiDoc.ActiveView.Id);
-            uiView?.ZoomToFit();
+
+            if (uiView != null)
+            {
+                XYZ? minPt = null;
+                XYZ? maxPt = null;
+
+                foreach (var id in ids)
+                {
+                    var el = _doc.GetElement(id);
+                    var bb = el?.get_BoundingBox(_uiDoc.ActiveView);
+                    if (bb is null) continue;
+
+                    if (minPt is null)
+                    {
+                        minPt = bb.Min;
+                        maxPt = bb.Max;
+                    }
+                    else
+                    {
+                        minPt = new XYZ(Math.Min(minPt.X, bb.Min.X),
+                                        Math.Min(minPt.Y, bb.Min.Y),
+                                        Math.Min(minPt.Z, bb.Min.Z));
+                        maxPt = new XYZ(Math.Max(maxPt!.X, bb.Max.X),
+                                        Math.Max(maxPt.Y, bb.Max.Y),
+                                        Math.Max(maxPt.Z, bb.Max.Z));
+                    }
+                }
+
+                if (minPt is not null && maxPt is not null)
+                {
+                    const double pad = 2.0; // ~60 cm padding in feet
+                    uiView.ZoomAndCenterRectangle(
+                        new XYZ(minPt.X - pad, minPt.Y - pad, minPt.Z),
+                        new XYZ(maxPt.X + pad, maxPt.Y + pad, maxPt.Z));
+                }
+                else
+                {
+                    uiView.ZoomToFit();
+                }
+            }
 
             StatusMessage = clash.Source == ElementSource.Linked
                 ? $"Selected: {clash.CableTrayName} (linked element cannot be selected)"
