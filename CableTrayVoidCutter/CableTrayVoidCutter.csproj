@@ -37,6 +37,15 @@
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
   </ItemGroup>
 
+  <!-- Icons embedded as resources; can be overridden by dropping PNG files
+       in a Resources\ folder next to the DLL (no recompile needed). -->
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\create_voids_32.png" />
+    <EmbeddedResource Include="Resources\create_voids_16.png" />
+    <EmbeddedResource Include="Resources\settings_32.png" />
+    <EmbeddedResource Include="Resources\settings_16.png" />
+  </ItemGroup>
+
   <!-- Copy .addin file to output -->
   <ItemGroup>
     <None Update="CableTrayVoidCutter.addin">

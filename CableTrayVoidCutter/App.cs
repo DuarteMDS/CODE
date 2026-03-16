@@ -83,13 +83,31 @@ public class App : IExternalApplication
     }
 
     /// <summary>
-    /// Tries to load an embedded PNG image; returns null if not found
-    /// (Revit accepts null without crashing).
+    /// Loads a ribbon icon by name.
+    /// Priority:
+    ///   1. Resources\{name} folder next to the DLL  → drop a PNG there to override without recompiling.
+    ///   2. Embedded resource compiled into the DLL   → default shipped icon.
+    /// Revit accepts null gracefully if neither source is found.
     /// </summary>
     private static BitmapImage? LoadImage(string resourceName)
     {
         try
         {
+            // 1 ─ External file override (place PNG next to the DLL for easy customisation)
+            var dir      = System.IO.Path.GetDirectoryName(AssemblyPath)!;
+            var filePath = System.IO.Path.Combine(dir, "Resources", resourceName);
+            if (System.IO.File.Exists(filePath))
+            {
+                var ext = new BitmapImage();
+                ext.BeginInit();
+                ext.UriSource   = new Uri(filePath);
+                ext.CacheOption = BitmapCacheOption.OnLoad;
+                ext.EndInit();
+                ext.Freeze();
+                return ext;
+            }
+
+            // 2 ─ Embedded resource (default)
             var asm    = Assembly.GetExecutingAssembly();
             var stream = asm.GetManifestResourceStream(
                 $"CableTrayVoidCutter.Resources.{resourceName}");
