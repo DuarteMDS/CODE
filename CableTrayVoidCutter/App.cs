@@ -36,7 +36,7 @@ public class App : IExternalApplication
     // -------------------------------------------------------------------------
     private static void CreateRibbonUI(UIControlledApplication app)
     {
-        const string tabName   = "Cable Tray Tools";
+        const string tabName   = "Gamaco";
         const string panelName = "Void Cutter";
 
         // Create tab (ignore if already exists)
