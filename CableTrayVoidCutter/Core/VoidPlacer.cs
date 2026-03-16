@@ -166,10 +166,8 @@ public static class VoidPlacer
             if (radius <= 0)
             {
                 // Fallback: derive from bounding box if parameter not available
-                var mep = doc.GetElement(clash.CableTrayId);
-                var bb  = mep?.get_BoundingBox(null);
-                if (bb is null) return;
-                radius = Math.Max(bb.Max.X - bb.Min.X, bb.Max.Z - bb.Min.Z) / 2.0 + margin;
+                if (mepBb is null) return;
+                radius = Math.Max(mepBb.Max.X - mepBb.Min.X, mepBb.Max.Z - mepBb.Min.Z) / 2.0 + margin;
             }
 
             // Two 180° arcs forming a circle in the wall plane (right+up axes)
@@ -194,15 +192,10 @@ public static class VoidPlacer
             double halfH = (clash.TrayHeight > 0 ? clash.TrayHeight / 2.0 : 0.25) + margin;
 
             // Fallback to bounding box if parameters were zero
-            if (clash.TrayWidth <= 0 || clash.TrayHeight <= 0)
+            if ((clash.TrayWidth <= 0 || clash.TrayHeight <= 0) && mepBb is not null)
             {
-                var mep = doc.GetElement(clash.CableTrayId);
-                var bb  = mep?.get_BoundingBox(null);
-                if (bb is not null)
-                {
-                    if (clash.TrayWidth  <= 0) halfW = (bb.Max.X - bb.Min.X) / 2.0 + margin;
-                    if (clash.TrayHeight <= 0) halfH = (bb.Max.Z - bb.Min.Z) / 2.0 + margin;
-                }
+                if (clash.TrayWidth  <= 0) halfW = (mepBb.Max.X - mepBb.Min.X) / 2.0 + margin;
+                if (clash.TrayHeight <= 0) halfH = (mepBb.Max.Z - mepBb.Min.Z) / 2.0 + margin;
             }
 
             var p0 = center - wallDir * halfW - upDir * halfH;
