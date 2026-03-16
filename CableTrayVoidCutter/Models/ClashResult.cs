@@ -19,15 +19,24 @@ public enum TrayShape
     Circular
 }
 
+/// <summary>Type of the MEP source element.</summary>
+public enum MepCategory
+{
+    CableTray,
+    CableTrayFitting,
+    Conduit
+}
+
 /// <summary>
 /// Represents a single detected collision between a Cable Tray and a
 /// Wall or Structural Beam (in the host model or a linked model).
 /// </summary>
 public class ClashResult
 {
-    // ── Cable tray (always in host document) ─────────────────────────────────
-    public ElementId CableTrayId   { get; set; } = ElementId.InvalidElementId;
-    public string    CableTrayName { get; set; } = string.Empty;
+    // ── MEP source element (always in host document) ──────────────────────────
+    public ElementId    CableTrayId       { get; set; } = ElementId.InvalidElementId;
+    public string       CableTrayName     { get; set; } = string.Empty;
+    public MepCategory  MepCategory       { get; set; } = MepCategory.CableTray;
 
     // ── Clashing element ─────────────────────────────────────────────────────
     public ElementId   ClashingElementId   { get; set; } = ElementId.InvalidElementId;
@@ -84,6 +93,14 @@ public class ClashResult
     public string TrayShapeDisplay => TrayShape == TrayShape.Circular
         ? $"⬤ Ø{TrayDiameter * 304.8:F0} mm"
         : $"▬ {TrayWidth * 304.8:F0}×{TrayHeight * 304.8:F0} mm";
+
+    public string MepCategoryDisplay => MepCategory switch
+    {
+        MepCategory.CableTray        => "Cable Tray",
+        MepCategory.CableTrayFitting => "CT Fitting",
+        MepCategory.Conduit          => "Conduit",
+        _                            => "MEP"
+    };
 }
 
 public enum ClashType

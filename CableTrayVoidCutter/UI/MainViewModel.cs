@@ -28,7 +28,10 @@ public class MainViewModel : INotifyPropertyChanged
         _doc      = uiDoc.Document;
         _settings = settings;
 
-        MarginMm = settings.MarginMm;
+        MarginMm             = settings.MarginMm;
+        ScanCableTrays        = settings.ScanCableTrays;
+        ScanCableTrayFittings = settings.ScanCableTrayFittings;
+        ScanConduits          = settings.ScanConduits;
 
         RefreshFamilyLists();
 
@@ -55,6 +58,30 @@ public class MainViewModel : INotifyPropertyChanged
     {
         get => _marginMm;
         set { _marginMm = value; OnPropertyChanged(); }
+    }
+
+    private bool _scanCableTrays;
+    public bool ScanCableTrays
+    {
+        get => _scanCableTrays;
+        set { _scanCableTrays = value; OnPropertyChanged();
+              _settings.ScanCableTrays = value; _settings.Save(); }
+    }
+
+    private bool _scanCableTrayFittings;
+    public bool ScanCableTrayFittings
+    {
+        get => _scanCableTrayFittings;
+        set { _scanCableTrayFittings = value; OnPropertyChanged();
+              _settings.ScanCableTrayFittings = value; _settings.Save(); }
+    }
+
+    private bool _scanConduits;
+    public bool ScanConduits
+    {
+        get => _scanConduits;
+        set { _scanConduits = value; OnPropertyChanged();
+              _settings.ScanConduits = value; _settings.Save(); }
     }
 
     private string _statusMessage = "Ready. Click \"Detect Clashes\" to begin.";
@@ -127,7 +154,8 @@ public class MainViewModel : INotifyPropertyChanged
 
             double marginFeet = MarginMm / 304.8;
 
-            var results = ClashDetector.Detect(_doc, marginFeet);
+            var results = ClashDetector.Detect(_doc, marginFeet,
+                              ScanCableTrays, ScanCableTrayFittings, ScanConduits);
 
             foreach (var r in results)
                 ClashResults.Add(r);

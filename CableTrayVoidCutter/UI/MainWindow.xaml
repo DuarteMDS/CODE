@@ -60,11 +60,12 @@
     <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>  <!-- toolbar -->
-            <RowDefinition Height="Auto"/>  <!-- margin row -->
-            <RowDefinition Height="*"    />  <!-- clash list -->
-            <RowDefinition Height="Auto"/>  <!-- family selection -->
-            <RowDefinition Height="Auto"/>  <!-- status bar -->
-            <RowDefinition Height="Auto"/>  <!-- action buttons -->
+            <RowDefinition Height="Auto"/>  <!-- 1: mep filter -->
+            <RowDefinition Height="Auto"/>  <!-- 2: margin row -->
+            <RowDefinition Height="*"    />  <!-- 3: clash list -->
+            <RowDefinition Height="Auto"/>  <!-- 4: family selection -->
+            <RowDefinition Height="Auto"/>  <!-- 5: status bar -->
+            <RowDefinition Height="Auto"/>  <!-- 6: action buttons -->
         </Grid.RowDefinitions>
 
         <!-- ── Row 0: Toolbar ──────────────────────────────────────────────── -->
@@ -89,8 +90,29 @@
                     Command="{Binding OpenSettingsCommand}"/>
         </StackPanel>
 
-        <!-- ── Row 1: Margin ───────────────────────────────────────────────── -->
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
+        <!-- ── Row 1: MEP element filter ───────────────────────────────────── -->
+        <Border Grid.Row="1" Background="#F0F4FF" BorderBrush="#B8C8E8"
+                BorderThickness="1" CornerRadius="3" Padding="8,5" Margin="0,0,0,8">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Scan:" VerticalAlignment="Center"
+                           FontWeight="SemiBold" Margin="0,0,10,0"/>
+                <CheckBox Content="Cable Trays"
+                          IsChecked="{Binding ScanCableTrays}"
+                          VerticalAlignment="Center" Margin="0,0,16,0"
+                          ToolTip="Include rectangular cable tray straight runs"/>
+                <CheckBox Content="CT Fittings"
+                          IsChecked="{Binding ScanCableTrayFittings}"
+                          VerticalAlignment="Center" Margin="0,0,16,0"
+                          ToolTip="Include cable tray fittings (elbows, tees, crosses…)"/>
+                <CheckBox Content="Conduits"
+                          IsChecked="{Binding ScanConduits}"
+                          VerticalAlignment="Center"
+                          ToolTip="Include circular conduit runs"/>
+            </StackPanel>
+        </Border>
+
+        <!-- ── Row 2: Margin ───────────────────────────────────────────────── -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
             <TextBlock Text="Clearance margin:" VerticalAlignment="Center"/>
             <TextBox Text="{Binding MarginMm, UpdateSourceTrigger=PropertyChanged}"
                      Width="60" Margin="8,0,4,0" VerticalAlignment="Center"
@@ -98,8 +120,8 @@
             <TextBlock Text="mm" VerticalAlignment="Center"/>
         </StackPanel>
 
-        <!-- ── Row 2: Clash list ────────────────────────────────────────────── -->
-        <GroupBox Grid.Row="2" Header="Detected Clashes" Margin="0,0,0,6">
+        <!-- ── Row 3: Clash list ────────────────────────────────────────────── -->
+        <GroupBox Grid.Row="3" Header="Detected Clashes" Margin="0,0,0,6">
             <Grid>
                 <!-- Loading overlay -->
                 <ProgressBar IsIndeterminate="True"
@@ -131,10 +153,16 @@
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
 
-                        <!-- Cable Tray name -->
-                        <DataGridTextColumn Header="Cable Tray / Conduit"
+                        <!-- MEP element name -->
+                        <DataGridTextColumn Header="MEP Element"
                                             Binding="{Binding CableTrayName}"
                                             Width="180"
+                                            IsReadOnly="True"/>
+
+                        <!-- MEP category (Cable Tray / CT Fitting / Conduit) -->
+                        <DataGridTextColumn Header="Category"
+                                            Binding="{Binding MepCategoryDisplay}"
+                                            Width="80"
                                             IsReadOnly="True"/>
 
                         <!-- Shape + dimensions (Rect or Circular) -->
@@ -193,8 +221,8 @@
             </Grid>
         </GroupBox>
 
-        <!-- ── Row 3: Family selection ─────────────────────────────────────── -->
-        <GroupBox Grid.Row="3" Header="Void Families (optionnel pour les murs)" Margin="0,0,0,6">
+        <!-- ── Row 4: Family selection ─────────────────────────────────────── -->
+        <GroupBox Grid.Row="4" Header="Void Families (optionnel pour les murs)" Margin="0,0,0,6">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -222,14 +250,14 @@
             </Grid>
         </GroupBox>
 
-        <!-- ── Row 4: Status bar ────────────────────────────────────────────── -->
-        <Border Grid.Row="4" Background="#F3F3F3" BorderBrush="#DDD"
+        <!-- ── Row 5: Status bar ────────────────────────────────────────────── -->
+        <Border Grid.Row="5" Background="#F3F3F3" BorderBrush="#DDD"
                 BorderThickness="1" Padding="6,3" Margin="0,0,0,6" CornerRadius="2">
             <TextBlock Text="{Binding StatusMessage}" FontSize="11"/>
         </Border>
 
-        <!-- ── Row 5: Action buttons ────────────────────────────────────────── -->
-        <StackPanel Grid.Row="5" Orientation="Horizontal"
+        <!-- ── Row 6: Action buttons ────────────────────────────────────────── -->
+        <StackPanel Grid.Row="6" Orientation="Horizontal"
                     HorizontalAlignment="Right">
             <Button Content="Apply Selected Voids"
                     Style="{StaticResource PrimaryButton}"

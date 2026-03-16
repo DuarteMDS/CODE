@@ -27,6 +27,11 @@ public class AppSettings
     /// <summary>Margin added on every side of the cable tray, in millimetres.</summary>
     public double MarginMm { get; set; } = 25.0;
 
+    // ── MEP scan filters ─────────────────────────────────────────────────────
+    public bool ScanCableTrays        { get; set; } = true;
+    public bool ScanCableTrayFittings { get; set; } = true;
+    public bool ScanConduits          { get; set; } = true;
+
     /// <summary>Families available in the family picker.</summary>
     public List<VoidFamilyEntry> VoidFamilies { get; set; } = [];
 
