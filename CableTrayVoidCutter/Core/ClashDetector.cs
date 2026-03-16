@@ -1,6 +1,7 @@
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Electrical;
 using CableTrayVoidCutter.Models;
+using WallFilter = CableTrayVoidCutter.Models.WallOrientationFilter;
 
 namespace CableTrayVoidCutter.Core;
 
@@ -19,11 +20,12 @@ public static class ClashDetector
     /// <param name="scanFittings">Include cable tray fittings (elbows, tees…).</param>
     /// <param name="scanConduits">Include conduit runs.</param>
     public static List<ClashResult> Detect(
-        Document doc,
-        double   marginFeet,
-        bool     scanCableTrays = true,
-        bool     scanFittings   = true,
-        bool     scanConduits   = true)
+        Document            doc,
+        double              marginFeet,
+        bool                scanCableTrays  = true,
+        bool                scanFittings    = true,
+        bool                scanConduits    = true,
+        WallFilter          wallOrientation = WallFilter.Vertical)
     {
         var results = new List<ClashResult>();
 
@@ -46,11 +48,13 @@ public static class ClashDetector
 
             // ── Host walls ────────────────────────────────────────────────────
             CheckHostElements(doc, info, traySolid,
-                              BuiltInCategory.OST_Walls, ClashType.Wall, results);
+                              BuiltInCategory.OST_Walls, ClashType.Wall,
+                              wallOrientation, results);
 
             // ── Host structural beams ─────────────────────────────────────────
             CheckHostElements(doc, info, traySolid,
-                              BuiltInCategory.OST_StructuralFraming, ClashType.Beam, results);
+                              BuiltInCategory.OST_StructuralFraming, ClashType.Beam,
+                              WallFilter.Both, results);   // beams: orientation N/A
 
             // ── Linked models ─────────────────────────────────────────────────
             foreach (var link in linkInstances)
@@ -64,11 +68,13 @@ public static class ClashDetector
 
                 CheckLinkedElements(doc, link, linkDoc, info,
                                     trayInLink, linkTransform,
-                                    BuiltInCategory.OST_Walls, ClashType.Wall, results);
+                                    BuiltInCategory.OST_Walls, ClashType.Wall,
+                                    wallOrientation, results);
 
                 CheckLinkedElements(doc, link, linkDoc, info,
                                     trayInLink, linkTransform,
-                                    BuiltInCategory.OST_StructuralFraming, ClashType.Beam, results);
+                                    BuiltInCategory.OST_StructuralFraming, ClashType.Beam,
+                                    WallFilter.Both, results);  // beams: orientation N/A
             }
         }
 
@@ -158,6 +164,7 @@ public static class ClashDetector
         Solid             traySolid,
         BuiltInCategory   cat,
         ClashType         clashType,
+        WallFilter        wallOrientation,
         List<ClashResult> results)
     {
         IList<Element> candidates;
@@ -175,8 +182,8 @@ public static class ClashDetector
         {
             if (elem.Id == info.Elem.Id) continue;
 
-            // Only process vertical walls (skip sloped / horizontal walls)
-            if (elem is Wall w && !IsVerticalWall(w, Transform.Identity)) continue;
+            // Apply wall orientation filter (beams pass through with WallFilter.Both)
+            if (elem is Wall w && !WallMatchesFilter(w, Transform.Identity, wallOrientation)) continue;
 
             var intersectionSolid = TryGetIntersection(info.Elem, elem);
             var midPt = intersectionSolid is not null
@@ -200,6 +207,7 @@ public static class ClashDetector
         Transform         linkTransform,
         BuiltInCategory   cat,
         ClashType         clashType,
+        WallFilter        wallOrientation,
         List<ClashResult> results)
     {
         IList<Element> candidates;
@@ -215,8 +223,8 @@ public static class ClashDetector
 
         foreach (var elem in candidates)
         {
-            // Only process vertical walls in link-space (orientation transformed to world)
-            if (elem is Wall lw && !IsVerticalWall(lw, linkTransform)) continue;
+            // Apply wall orientation filter in world space (via link transform)
+            if (elem is Wall lw && !WallMatchesFilter(lw, linkTransform, wallOrientation)) continue;
 
             var elemSolid = GeometryHelper.GetSolid(elem);
             Solid? worldSolid = null;
@@ -312,16 +320,22 @@ public static class ClashDetector
     }
 
     /// <summary>
-    /// Returns true when the wall face normal is horizontal (Z ≈ 0) after
-    /// applying <paramref name="transform"/> – i.e. the wall is vertical.
-    /// Sloped walls and horizontal "walls" (floor-like) are excluded.
+    /// Returns true when the wall satisfies the orientation filter.
+    /// <para>
+    /// "Vertical"   → face normal is horizontal (|Z| &lt; 0.1) — standard plumb wall.<br/>
+    /// "Horizontal" → face normal is mostly vertical (|Z| ≥ 0.1) — sloped / flat wall.<br/>
+    /// "Both"       → always passes.
+    /// </para>
     /// </summary>
-    private static bool IsVerticalWall(Wall wall, Transform transform)
+    private static bool WallMatchesFilter(Wall wall, Transform transform, WallFilter filter)
     {
-        // Wall.Orientation is the outward face normal in local document space.
-        // For a plumb wall the transformed normal must be horizontal (|Z| ≈ 0).
+        if (filter == WallFilter.Both) return true;
+
+        // Wall.Orientation is the outward face normal in the local document space.
         var worldNormal = transform.OfVector(wall.Orientation);
-        return Math.Abs(worldNormal.Z) < 0.1;
+        bool isVertical = Math.Abs(worldNormal.Z) < 0.1;
+
+        return filter == WallFilter.Vertical ? isVertical : !isVertical;
     }
 
     private static XYZ GetBBMidPoint(

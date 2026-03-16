@@ -93,22 +93,37 @@
         <!-- ── Row 1: MEP element filter ───────────────────────────────────── -->
         <Border Grid.Row="1" Background="#F0F4FF" BorderBrush="#B8C8E8"
                 BorderThickness="1" CornerRadius="3" Padding="8,5" Margin="0,0,0,8">
-            <StackPanel Orientation="Horizontal">
-                <TextBlock Text="Scan:" VerticalAlignment="Center"
+            <WrapPanel Orientation="Horizontal">
+                <!-- MEP categories -->
+                <TextBlock Text="Éléments MEP :" VerticalAlignment="Center"
                            FontWeight="SemiBold" Margin="0,0,10,0"/>
-                <CheckBox Content="Cable Trays"
+                <CheckBox Content="Chemins de câbles"
                           IsChecked="{Binding ScanCableTrays}"
                           VerticalAlignment="Center" Margin="0,0,16,0"
-                          ToolTip="Include rectangular cable tray straight runs"/>
-                <CheckBox Content="CT Fittings"
+                          ToolTip="Inclure les chemins de câbles droits"/>
+                <CheckBox Content="Raccords CT"
                           IsChecked="{Binding ScanCableTrayFittings}"
                           VerticalAlignment="Center" Margin="0,0,16,0"
-                          ToolTip="Include cable tray fittings (elbows, tees, crosses…)"/>
+                          ToolTip="Inclure les raccords de chemins de câbles (coudes, tés…)"/>
                 <CheckBox Content="Conduits"
                           IsChecked="{Binding ScanConduits}"
                           VerticalAlignment="Center"
-                          ToolTip="Include circular conduit runs"/>
-            </StackPanel>
+                          ToolTip="Inclure les conduits circulaires"/>
+
+                <!-- Separator -->
+                <Separator Width="1" Margin="14,2"/>
+
+                <!-- Wall orientation filter -->
+                <TextBlock Text="Murs :" VerticalAlignment="Center"
+                           FontWeight="SemiBold" Margin="8,0,8,0"/>
+                <ComboBox SelectedItem="{Binding WallOrientationLabel}"
+                          Width="180" VerticalAlignment="Center"
+                          ToolTip="Choisir l'orientation des murs à analyser">
+                    <ComboBoxItem>Verticaux uniquement</ComboBoxItem>
+                    <ComboBoxItem>Horizontal uniquement</ComboBoxItem>
+                    <ComboBoxItem>Verticaux et horizontaux</ComboBoxItem>
+                </ComboBox>
+            </WrapPanel>
         </Border>
 
         <!-- ── Row 2: Margin ───────────────────────────────────────────────── -->

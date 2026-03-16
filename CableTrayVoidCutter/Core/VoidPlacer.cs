@@ -152,7 +152,10 @@ public static class VoidPlacer
 
         // ── Wall local axes ──────────────────────────────────────────────────
         var wallDir = (wallCurve.GetEndPoint(1) - wallCurve.GetEndPoint(0)).Normalize();
-        var upDir   = XYZ.BasisZ;
+        // upDir must lie in the wall face plane and be perpendicular to wallDir.
+        // wallDir × wall.Orientation gives BasisZ for a plumb wall, and a
+        // horizontal axis for a horizontal/sloped wall – both are correct.
+        var upDir   = wallDir.CrossProduct(wall.Orientation).Normalize();
 
         CurveArray curveArray;
 

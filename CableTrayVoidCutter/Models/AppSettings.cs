@@ -5,6 +5,19 @@ using System.Text.Json.Serialization;
 namespace CableTrayVoidCutter.Models;
 
 /// <summary>
+/// Which wall orientations are included in clash detection.
+/// </summary>
+public enum WallOrientationFilter
+{
+    /// <summary>Only plumb walls (standard Revit walls). Default.</summary>
+    Vertical,
+    /// <summary>Only walls whose face normal is mostly vertical (sloped / horizontal).</summary>
+    Horizontal,
+    /// <summary>All walls regardless of orientation.</summary>
+    Both
+}
+
+/// <summary>
 /// Describes a loaded void family symbol (wall or beam type).
 /// </summary>
 public class VoidFamilyEntry
@@ -31,6 +44,9 @@ public class AppSettings
     public bool ScanCableTrays        { get; set; } = true;
     public bool ScanCableTrayFittings { get; set; } = true;
     public bool ScanConduits          { get; set; } = true;
+
+    /// <summary>Which wall orientations to include when detecting clashes.</summary>
+    public WallOrientationFilter WallOrientation { get; set; } = WallOrientationFilter.Vertical;
 
     /// <summary>Families available in the family picker.</summary>
     public List<VoidFamilyEntry> VoidFamilies { get; set; } = [];

@@ -28,10 +28,11 @@ public class MainViewModel : INotifyPropertyChanged
         _doc      = uiDoc.Document;
         _settings = settings;
 
-        MarginMm             = settings.MarginMm;
+        MarginMm              = settings.MarginMm;
         ScanCableTrays        = settings.ScanCableTrays;
         ScanCableTrayFittings = settings.ScanCableTrayFittings;
         ScanConduits          = settings.ScanConduits;
+        _wallOrientation      = settings.WallOrientation;
 
         RefreshFamilyLists();
 
@@ -82,6 +83,34 @@ public class MainViewModel : INotifyPropertyChanged
         get => _scanConduits;
         set { _scanConduits = value; OnPropertyChanged();
               _settings.ScanConduits = value; _settings.Save(); }
+    }
+
+    private WallOrientationFilter _wallOrientation;
+
+    /// <summary>
+    /// Label bound to the wall-orientation ComboBox.
+    /// Maps the enum to/from a display string so no converter is needed in XAML.
+    /// </summary>
+    public string WallOrientationLabel
+    {
+        get => _wallOrientation switch
+        {
+            WallOrientationFilter.Horizontal => "Horizontal uniquement",
+            WallOrientationFilter.Both       => "Verticaux et horizontaux",
+            _                                => "Verticaux uniquement",
+        };
+        set
+        {
+            _wallOrientation = value switch
+            {
+                "Horizontal uniquement"    => WallOrientationFilter.Horizontal,
+                "Verticaux et horizontaux" => WallOrientationFilter.Both,
+                _                         => WallOrientationFilter.Vertical,
+            };
+            OnPropertyChanged();
+            _settings.WallOrientation = _wallOrientation;
+            _settings.Save();
+        }
     }
 
     private string _statusMessage = "Ready. Click \"Detect Clashes\" to begin.";
@@ -155,7 +184,8 @@ public class MainViewModel : INotifyPropertyChanged
             double marginFeet = MarginMm / 304.8;
 
             var results = ClashDetector.Detect(_doc, marginFeet,
-                              ScanCableTrays, ScanCableTrayFittings, ScanConduits);
+                              ScanCableTrays, ScanCableTrayFittings, ScanConduits,
+                              _wallOrientation);
 
             foreach (var r in results)
                 ClashResults.Add(r);
