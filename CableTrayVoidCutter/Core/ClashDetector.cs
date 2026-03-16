@@ -175,6 +175,9 @@ public static class ClashDetector
         {
             if (elem.Id == info.Elem.Id) continue;
 
+            // Only process vertical walls (skip sloped / horizontal walls)
+            if (elem is Wall w && !IsVerticalWall(w, Transform.Identity)) continue;
+
             var intersectionSolid = TryGetIntersection(info.Elem, elem);
             var midPt = intersectionSolid is not null
                 ? GetSolidCentroid(intersectionSolid)
@@ -212,6 +215,9 @@ public static class ClashDetector
 
         foreach (var elem in candidates)
         {
+            // Only process vertical walls in link-space (orientation transformed to world)
+            if (elem is Wall lw && !IsVerticalWall(lw, linkTransform)) continue;
+
             var elemSolid = GeometryHelper.GetSolid(elem);
             Solid? worldSolid = null;
             if (elemSolid is not null)
@@ -303,6 +309,19 @@ public static class ClashDetector
         var bbB = b.get_BoundingBox(null);
         if (bbA is null || bbB is null) return XYZ.Zero;
         return GeometryHelper.BoundingBoxMidPoint(bbA, bbB);
+    }
+
+    /// <summary>
+    /// Returns true when the wall face normal is horizontal (Z ≈ 0) after
+    /// applying <paramref name="transform"/> – i.e. the wall is vertical.
+    /// Sloped walls and horizontal "walls" (floor-like) are excluded.
+    /// </summary>
+    private static bool IsVerticalWall(Wall wall, Transform transform)
+    {
+        // Wall.Orientation is the outward face normal in local document space.
+        // For a plumb wall the transformed normal must be horizontal (|Z| ≈ 0).
+        var worldNormal = transform.OfVector(wall.Orientation);
+        return Math.Abs(worldNormal.Z) < 0.1;
     }
 
     private static XYZ GetBBMidPoint(

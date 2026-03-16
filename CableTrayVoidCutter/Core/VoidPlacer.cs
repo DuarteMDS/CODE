@@ -127,20 +127,28 @@ public static class VoidPlacer
         // ── Insertion point: centre of the intersection in the wall plane ────
         var center = clash.IntersectionMidPoint;
 
-        // If we have no intersection geometry fall back to tray bounding box
+        // Always fetch the MEP element to derive its geometric Z centre
+        var mep   = doc.GetElement(clash.CableTrayId);
+        var mepBb = mep?.get_BoundingBox(null);
+
+        // If no intersection XY, fall back to tray bounding box centre
         if (center.IsAlmostEqualTo(XYZ.Zero))
         {
-            var mep = doc.GetElement(clash.CableTrayId);
-            if (mep is null) return;
-            center = GetCenter(mep.get_BoundingBox(null)
-                               ?? throw new InvalidOperationException("No bounding box"));
+            if (mepBb is null) return;
+            center = GetCenter(mepBb);
         }
 
-        // Project center onto the wall centerline (keep Z from intersection)
-        var wallCurve = ((LocationCurve)wall.Location).Curve;
-        var proj      = wallCurve.Project(center);
+        // Use the cable tray / fitting bounding-box Z midpoint so the void
+        // is aligned to the element's geometric centre, not the intersection centroid.
+        double centerZ = mepBb is not null
+            ? (mepBb.Min.Z + mepBb.Max.Z) / 2.0
+            : center.Z;
+
+        // Project XY onto the wall centreline; apply tray-derived Z
+        var wallCurve    = ((LocationCurve)wall.Location).Curve;
+        var proj         = wallCurve.Project(center);
         var wallCenterPt = wallCurve.Evaluate(proj.Parameter, false);
-        center = new XYZ(wallCenterPt.X, wallCenterPt.Y, center.Z);
+        center = new XYZ(wallCenterPt.X, wallCenterPt.Y, centerZ);
 
         // ── Wall local axes ──────────────────────────────────────────────────
         var wallDir = (wallCurve.GetEndPoint(1) - wallCurve.GetEndPoint(0)).Normalize();
