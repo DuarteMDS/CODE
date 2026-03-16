@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Input;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.UI;
 using CableTrayVoidCutter.Core;
 using CableTrayVoidCutter.Models;
 
@@ -11,36 +12,40 @@ namespace CableTrayVoidCutter.UI;
 
 /// <summary>
 /// ViewModel for <see cref="MainWindow"/>.
-/// Drives clash detection, void placement and settings persistence.
+/// Drives clash detection, void placement, settings persistence, and in-Revit selection.
 /// </summary>
 public class MainViewModel : INotifyPropertyChanged
 {
-    private readonly Document  _doc;
+    private readonly Document    _doc;
+    private readonly UIDocument  _uiDoc;
     private readonly AppSettings _settings;
 
     // ── Constructor ───────────────────────────────────────────────────────────
 
-    public MainViewModel(Document doc, AppSettings settings)
+    public MainViewModel(UIDocument uiDoc, AppSettings settings)
     {
-        _doc      = doc;
+        _uiDoc    = uiDoc;
+        _doc      = uiDoc.Document;
         _settings = settings;
 
         MarginMm = settings.MarginMm;
 
-        // Rebuild family lists from settings
         RefreshFamilyLists();
 
-        // Restore last-used families
         SelectedWallFamily = WallFamilies.FirstOrDefault(
             f => f.FilePath == settings.LastWallFamilyPath);
         SelectedBeamFamily = BeamFamilies.FirstOrDefault(
             f => f.FilePath == settings.LastBeamFamilyPath);
 
-        DetectClashesCommand = new RelayCommand(DetectClashes);
-        ApplyCommand         = new RelayCommand(Apply,       () => ClashResults.Any(c => c.IsSelected));
-        SelectAllCommand     = new RelayCommand(SelectAll,   () => ClashResults.Count > 0);
-        DeselectAllCommand   = new RelayCommand(DeselectAll, () => ClashResults.Count > 0);
-        OpenSettingsCommand  = new RelayCommand(OpenSettings);
+        DetectClashesCommand  = new RelayCommand(DetectClashes);
+        ApplyCommand          = new RelayCommand(Apply,
+                                    () => ClashResults.Any(c => c.IsSelected));
+        SelectAllCommand      = new RelayCommand(SelectAll,
+                                    () => ClashResults.Count > 0);
+        DeselectAllCommand    = new RelayCommand(DeselectAll,
+                                    () => ClashResults.Count > 0);
+        OpenSettingsCommand   = new RelayCommand(OpenSettings);
+        ShowInRevitCommand    = new RelayCommand<ClashResult>(ShowInRevit);
     }
 
     // ── Observable properties ─────────────────────────────────────────────────
@@ -66,9 +71,9 @@ public class MainViewModel : INotifyPropertyChanged
         set { _isBusy = value; OnPropertyChanged(); }
     }
 
-    public ObservableCollection<ClashResult>    ClashResults    { get; } = [];
-    public ObservableCollection<VoidFamilyEntry> WallFamilies   { get; } = [];
-    public ObservableCollection<VoidFamilyEntry> BeamFamilies   { get; } = [];
+    public ObservableCollection<ClashResult>     ClashResults    { get; } = [];
+    public ObservableCollection<VoidFamilyEntry> WallFamilies    { get; } = [];
+    public ObservableCollection<VoidFamilyEntry> BeamFamilies    { get; } = [];
 
     private VoidFamilyEntry? _selectedWallFamily;
     public VoidFamilyEntry? SelectedWallFamily
@@ -98,11 +103,14 @@ public class MainViewModel : INotifyPropertyChanged
 
     // ── Commands ──────────────────────────────────────────────────────────────
 
-    public ICommand DetectClashesCommand { get; }
-    public ICommand ApplyCommand         { get; }
-    public ICommand SelectAllCommand     { get; }
-    public ICommand DeselectAllCommand   { get; }
-    public ICommand OpenSettingsCommand  { get; }
+    public ICommand DetectClashesCommand  { get; }
+    public ICommand ApplyCommand          { get; }
+    public ICommand SelectAllCommand      { get; }
+    public ICommand DeselectAllCommand    { get; }
+    public ICommand OpenSettingsCommand   { get; }
+
+    /// <summary>Zooms to and selects the elements of a clash in the active Revit view.</summary>
+    public ICommand ShowInRevitCommand    { get; }
 
     // ── Actions ───────────────────────────────────────────────────────────────
 
@@ -154,7 +162,6 @@ public class MainViewModel : INotifyPropertyChanged
         {
             double marginFeet = MarginMm / 304.8;
 
-            // Load families
             FamilySymbol? wallSym = null;
             FamilySymbol? beamSym = null;
 
@@ -175,7 +182,6 @@ public class MainViewModel : INotifyPropertyChanged
             MessageBox.Show(summary, "Cable Tray Void Cutter",
                             MessageBoxButton.OK, MessageBoxImage.Information);
 
-            // Re-run detection so the list stays up to date
             DetectClashes();
         }
         catch (Exception ex)
@@ -209,6 +215,39 @@ public class MainViewModel : INotifyPropertyChanged
             _settings.Save();
             MarginMm = _settings.MarginMm;
             RefreshFamilyLists();
+        }
+    }
+
+    /// <summary>
+    /// Selects the cable tray and the clashing element in Revit and fits the view to them.
+    /// For linked elements only the cable tray (in host) can be selected.
+    /// </summary>
+    private void ShowInRevit(ClashResult? clash)
+    {
+        if (clash is null) return;
+
+        try
+        {
+            var ids = new List<ElementId> { clash.CableTrayId };
+
+            // Only add the clashing element if it's in the host document
+            if (clash.Source == ElementSource.Host)
+                ids.Add(clash.ClashingElementId);
+
+            _uiDoc.Selection.SetElementIds(ids);
+
+            // Zoom the active view to the selected elements
+            var uiView = _uiDoc.GetOpenUIViews()
+                .FirstOrDefault(v => v.ViewId == _uiDoc.ActiveView.Id);
+            uiView?.ZoomToFit();
+
+            StatusMessage = clash.Source == ElementSource.Linked
+                ? $"Selected: {clash.CableTrayName} (linked element cannot be selected)"
+                : $"Selected: {clash.DisplayName}";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Could not select elements: {ex.Message}";
         }
     }
 

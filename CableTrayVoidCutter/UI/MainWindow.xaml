@@ -5,8 +5,8 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
         Title="Cable Tray Void Cutter"
-        Width="820" Height="620"
-        MinWidth="640" MinHeight="480"
+        Width="900" Height="640"
+        MinWidth="700" MinHeight="500"
         WindowStartupLocation="CenterScreen"
         ResizeMode="CanResizeWithGrip">
 
@@ -22,12 +22,12 @@
 
         <!-- Primary action button -->
         <Style x:Key="PrimaryButton" TargetType="Button">
-            <Setter Property="Padding"     Value="14,5"/>
-            <Setter Property="FontWeight"  Value="SemiBold"/>
-            <Setter Property="Background"  Value="#0078D4"/>
-            <Setter Property="Foreground"  Value="White"/>
+            <Setter Property="Padding"         Value="14,5"/>
+            <Setter Property="FontWeight"      Value="SemiBold"/>
+            <Setter Property="Background"      Value="#0078D4"/>
+            <Setter Property="Foreground"      Value="White"/>
             <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Cursor"      Value="Hand"/>
+            <Setter Property="Cursor"          Value="Hand"/>
             <Style.Triggers>
                 <Trigger Property="IsEnabled" Value="False">
                     <Setter Property="Opacity" Value="0.5"/>
@@ -37,8 +37,23 @@
 
         <!-- Secondary button -->
         <Style x:Key="SecondaryButton" TargetType="Button">
-            <Setter Property="Padding"    Value="10,5"/>
-            <Setter Property="Cursor"     Value="Hand"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="Cursor"  Value="Hand"/>
+        </Style>
+
+        <!-- Small icon button (in DataGrid rows) -->
+        <Style x:Key="IconButton" TargetType="Button">
+            <Setter Property="Padding"         Value="4,2"/>
+            <Setter Property="Cursor"          Value="Hand"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Background"      Value="Transparent"/>
+            <Setter Property="FontSize"        Value="13"/>
+            <Setter Property="ToolTip"         Value="Zoom to this clash in Revit and select elements"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#E0E0E0"/>
+                </Trigger>
+            </Style.Triggers>
         </Style>
     </Window.Resources>
 
@@ -57,8 +72,9 @@
             <Button Content="⟳  Detect Clashes"
                     Style="{StaticResource PrimaryButton}"
                     Command="{Binding DetectClashesCommand}"
-                    IsEnabled="{Binding IsBusy, Converter={StaticResource BoolToVis},
-                                        ConverterParameter=inverse}"/>
+                    IsEnabled="{Binding IsBusy,
+                                        RelativeSource={RelativeSource AncestorType=Window},
+                                        Converter={StaticResource BoolToVis}}"/>
             <Button Content="Select All"
                     Style="{StaticResource SecondaryButton}"
                     Command="{Binding SelectAllCommand}"
@@ -78,7 +94,7 @@
             <TextBlock Text="Clearance margin:" VerticalAlignment="Center"/>
             <TextBox Text="{Binding MarginMm, UpdateSourceTrigger=PropertyChanged}"
                      Width="60" Margin="8,0,4,0" VerticalAlignment="Center"
-                     ToolTip="Extra clearance added around each cable tray (mm)"/>
+                     ToolTip="Extra clearance added around each cable tray / conduit (mm)"/>
             <TextBlock Text="mm" VerticalAlignment="Center"/>
         </StackPanel>
 
@@ -102,20 +118,29 @@
                           FontSize="12">
 
                     <DataGrid.Columns>
+
                         <!-- Checkbox -->
                         <DataGridTemplateColumn Width="32" Header="">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
-                                    <CheckBox IsChecked="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}"
+                                    <CheckBox IsChecked="{Binding IsSelected,
+                                                          Mode=TwoWay,
+                                                          UpdateSourceTrigger=PropertyChanged}"
                                               HorizontalAlignment="Center"/>
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
 
                         <!-- Cable Tray name -->
-                        <DataGridTextColumn Header="Cable Tray"
+                        <DataGridTextColumn Header="Cable Tray / Conduit"
                                             Binding="{Binding CableTrayName}"
-                                            Width="200"
+                                            Width="180"
+                                            IsReadOnly="True"/>
+
+                        <!-- Shape + dimensions (Rect or Circular) -->
+                        <DataGridTextColumn Header="Shape"
+                                            Binding="{Binding TrayShapeDisplay}"
+                                            Width="120"
                                             IsReadOnly="True"/>
 
                         <!-- Clash Type (Wall / Beam) -->
@@ -139,13 +164,28 @@
                         <!-- Link name -->
                         <DataGridTextColumn Header="Link"
                                             Binding="{Binding LinkName}"
-                                            Width="130"
+                                            Width="120"
                                             IsReadOnly="True"/>
+
+                        <!-- "Show in Revit" button -->
+                        <DataGridTemplateColumn Width="38" Header="🔍">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Button Content="🎯"
+                                            Style="{StaticResource IconButton}"
+                                            Command="{Binding DataContext.ShowInRevitCommand,
+                                                      RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                            CommandParameter="{Binding}"
+                                            ToolTip="Zoom to clash and select elements in Revit"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+
                     </DataGrid.Columns>
                 </DataGrid>
 
                 <!-- Empty state message -->
-                <TextBlock Text="No clashes detected yet. Click &#x22;Detect Clashes&#x22; above."
+                <TextBlock Text="No clashes detected yet. Click &quot;Detect Clashes&quot; above."
                            HorizontalAlignment="Center" VerticalAlignment="Center"
                            Foreground="Gray" FontStyle="Italic"
                            Visibility="{Binding ClashResults.Count,
@@ -154,7 +194,7 @@
         </GroupBox>
 
         <!-- ── Row 3: Family selection ─────────────────────────────────────── -->
-        <GroupBox Grid.Row="3" Header="Void Families" Margin="0,0,0,6">
+        <GroupBox Grid.Row="3" Header="Void Families (optionnel pour les murs)" Margin="0,0,0,6">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -168,7 +208,7 @@
                     <ComboBox ItemsSource="{Binding WallFamilies}"
                               SelectedItem="{Binding SelectedWallFamily}"
                               DisplayMemberPath="Name"
-                              ToolTip="Family used to cut host-model walls"/>
+                              ToolTip="Family used to cut host-model walls (not required – openings are created automatically)"/>
                 </StackPanel>
 
                 <!-- Beam family -->
@@ -177,7 +217,7 @@
                     <ComboBox ItemsSource="{Binding BeamFamilies}"
                               SelectedItem="{Binding SelectedBeamFamily}"
                               DisplayMemberPath="Name"
-                              ToolTip="Family used to cut structural beams"/>
+                              ToolTip="Family used to cut structural beams (required for beam voids)"/>
                 </StackPanel>
             </Grid>
         </GroupBox>

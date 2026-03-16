@@ -5,7 +5,7 @@ using CableTrayVoidCutter.Models;
 namespace CableTrayVoidCutter.Core;
 
 /// <summary>
-/// Detects collisions between Cable Trays (host document) and
+/// Detects collisions between Cable Trays / Conduits (host document) and
 /// Walls / Structural Beams (host + all linked models).
 /// </summary>
 public static class ClashDetector
@@ -13,23 +13,13 @@ public static class ClashDetector
     /// <summary>
     /// Runs the full clash detection and returns the list of results.
     /// </summary>
-    /// <param name="doc">Active (host) Revit document.</param>
-    /// <param name="marginFeet">
-    ///   Extra clearance in feet applied to every cable-tray bounding box
-    ///   for the initial broad-phase filter.
-    /// </param>
     public static List<ClashResult> Detect(Document doc, double marginFeet)
     {
         var results = new List<ClashResult>();
 
-        // ── 1. Collect all cable trays in the host document ──────────────────
-        var cableTrays = new FilteredElementCollector(doc)
-            .OfClass(typeof(CableTray))
-            .WhereElementIsNotElementType()
-            .Cast<CableTray>()
-            .ToList();
-
-        if (cableTrays.Count == 0) return results;
+        // ── 1. Collect all cable trays and conduits in the host document ──────
+        var mepElements = CollectMepElements(doc);
+        if (mepElements.Count == 0) return results;
 
         // ── 2. Collect all linked-model instances ─────────────────────────────
         var linkInstances = new FilteredElementCollector(doc)
@@ -38,27 +28,21 @@ public static class ClashDetector
             .Where(li => li.GetLinkDocument() is not null)
             .ToList();
 
-        var geomOptions = new Options
+        // ── 3. Process each MEP element ───────────────────────────────────────
+        foreach (var (mep, shape, w, h, diam) in mepElements)
         {
-            ComputeReferences = true,
-            DetailLevel       = ViewDetailLevel.Fine
-        };
-
-        // ── 3. Process each cable tray ────────────────────────────────────────
-        foreach (var tray in cableTrays)
-        {
-            var trayName  = GeometryHelper.GetElementDisplayName(tray);
-            var traySolid = GeometryHelper.GetInflatedCableTray(tray, marginFeet);
+            var trayName  = GeometryHelper.GetElementDisplayName(mep);
+            var traySolid = GeometryHelper.GetInflatedCableTray(mep, marginFeet);
             if (traySolid is null) continue;
 
             // ── 3a. Host-document walls ───────────────────────────────────────
-            CheckHostElements(doc, tray, trayName, traySolid,
-                              BuiltInCategory.OST_Walls,
+            CheckHostElements(doc, mep, trayName, shape, w, h, diam,
+                              traySolid, BuiltInCategory.OST_Walls,
                               ClashType.Wall, results);
 
             // ── 3b. Host-document structural beams ────────────────────────────
-            CheckHostElements(doc, tray, trayName, traySolid,
-                              BuiltInCategory.OST_StructuralFraming,
+            CheckHostElements(doc, mep, trayName, shape, w, h, diam,
+                              traySolid, BuiltInCategory.OST_StructuralFraming,
                               ClashType.Beam, results);
 
             // ── 3c. Linked models ─────────────────────────────────────────────
@@ -67,23 +51,16 @@ public static class ClashDetector
                 var linkDoc       = link.GetLinkDocument();
                 var linkTransform = link.GetTotalTransform();
 
-                // Transform the tray solid into the link's local coordinate space
                 Solid? trayInLink;
-                try
-                {
-                    trayInLink = SolidUtils.CreateTransformed(
-                        traySolid, linkTransform.Inverse);
-                }
+                try { trayInLink = SolidUtils.CreateTransformed(traySolid, linkTransform.Inverse); }
                 catch { continue; }
 
-                // Walls in link
-                CheckLinkedElements(doc, link, linkDoc, tray, trayName,
+                CheckLinkedElements(doc, link, linkDoc, mep, trayName, shape, w, h, diam,
                                     trayInLink, linkTransform,
                                     BuiltInCategory.OST_Walls,
                                     ClashType.Wall, results);
 
-                // Beams in link
-                CheckLinkedElements(doc, link, linkDoc, tray, trayName,
+                CheckLinkedElements(doc, link, linkDoc, mep, trayName, shape, w, h, diam,
                                     trayInLink, linkTransform,
                                     BuiltInCategory.OST_StructuralFraming,
                                     ClashType.Beam, results);
@@ -93,12 +70,55 @@ public static class ClashDetector
         return results;
     }
 
+    // ── MEP element collection ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Returns all cable trays and conduits with their shape and dimensions.
+    /// Dimensions in Revit internal feet.
+    /// </summary>
+    private static List<(Element elem, TrayShape shape, double width, double height, double diameter)>
+        CollectMepElements(Document doc)
+    {
+        var list = new List<(Element, TrayShape, double, double, double)>();
+
+        // Rectangular cable trays
+        foreach (var ct in new FilteredElementCollector(doc)
+            .OfClass(typeof(CableTray))
+            .WhereElementIsNotElementType()
+            .Cast<CableTray>())
+        {
+            var w = ct.LookupParameter("Width")?.AsDouble()
+                 ?? ct.get_Parameter(BuiltInParameter.RBS_CABLETRAY_WIDTH_PARAM)?.AsDouble()
+                 ?? 0;
+            var h = ct.LookupParameter("Height")?.AsDouble()
+                 ?? ct.get_Parameter(BuiltInParameter.RBS_CABLETRAY_HEIGHT_PARAM)?.AsDouble()
+                 ?? 0;
+            list.Add((ct, TrayShape.Rectangular, w, h, 0));
+        }
+
+        // Circular conduits
+        foreach (var cond in new FilteredElementCollector(doc)
+            .OfClass(typeof(Conduit))
+            .WhereElementIsNotElementType()
+            .Cast<Conduit>())
+        {
+            var diam = cond.get_Parameter(BuiltInParameter.RBS_CONDUIT_DIAMETER_PARAM)?.AsDouble()
+                    ?? cond.LookupParameter("Diameter")?.AsDouble()
+                    ?? 0;
+            list.Add((cond, TrayShape.Circular, 0, 0, diam));
+        }
+
+        return list;
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static void CheckHostElements(
         Document      doc,
         Element       tray,
         string        trayName,
+        TrayShape     trayShape,
+        double        trayW, double trayH, double trayDiam,
         Solid         traySolid,
         BuiltInCategory cat,
         ClashType     clashType,
@@ -117,7 +137,6 @@ public static class ClashDetector
 
         foreach (var elem in candidates)
         {
-            // Exclude the tray itself (shouldn't happen, but guard anyway)
             if (elem.Id == tray.Id) continue;
 
             var intersectionSolid = TryGetIntersection(tray, elem);
@@ -134,6 +153,10 @@ public static class ClashDetector
                 ClashType            = clashType,
                 Source               = ElementSource.Host,
                 LinkTransform        = Transform.Identity,
+                TrayShape            = trayShape,
+                TrayWidth            = trayW,
+                TrayHeight           = trayH,
+                TrayDiameter         = trayDiam,
                 IntersectionSolid    = intersectionSolid,
                 IntersectionMidPoint = midPt,
             });
@@ -146,6 +169,8 @@ public static class ClashDetector
         Document          linkDoc,
         Element           tray,
         string            trayName,
+        TrayShape         trayShape,
+        double            trayW, double trayH, double trayDiam,
         Solid             trayInLink,
         Transform         linkTransform,
         BuiltInCategory   cat,
@@ -167,7 +192,6 @@ public static class ClashDetector
 
         foreach (var elem in candidates)
         {
-            // Transform element solid back to host world space for the intersection
             var elemSolid = GeometryHelper.GetSolid(elem);
             Solid? worldSolid = null;
             if (elemSolid is not null)
@@ -176,7 +200,7 @@ public static class ClashDetector
                 catch { /* ignore */ }
             }
 
-            var traySolidHost = GeometryHelper.GetInflatedCableTray(tray, 0); // exact solid
+            var traySolidHost = GeometryHelper.GetInflatedCableTray(tray, 0);
             Solid? intersectionSolid = null;
             if (traySolidHost is not null && worldSolid is not null)
                 intersectionSolid = GeometryHelper.Intersect(traySolidHost, worldSolid);
@@ -196,6 +220,10 @@ public static class ClashDetector
                 LinkInstanceId       = link.Id,
                 LinkName             = linkName,
                 LinkTransform        = linkTransform,
+                TrayShape            = trayShape,
+                TrayWidth            = trayW,
+                TrayHeight           = trayH,
+                TrayDiameter         = trayDiam,
                 IntersectionSolid    = intersectionSolid,
                 IntersectionMidPoint = midPt,
             });
@@ -218,7 +246,6 @@ public static class ClashDetector
 
     private static XYZ GetSolidCentroid(Solid solid)
     {
-        // Revit doesn't expose centroid directly; use bounding box centre
         var pts = solid.Faces
             .Cast<Face>()
             .SelectMany(f => f.GetEdgesAsCurveLoops()
@@ -251,7 +278,6 @@ public static class ClashDetector
 
         if (bbTray is null || bbLink is null) return XYZ.Zero;
 
-        // Transform bbLink corners to host space
         var corners = new[]
         {
             linkTransform.OfPoint(bbLink.Min),

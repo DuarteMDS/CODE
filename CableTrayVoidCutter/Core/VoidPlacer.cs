@@ -10,10 +10,9 @@ namespace CableTrayVoidCutter.Core;
 /// Creates void openings / family instances for each <see cref="ClashResult"/>.
 ///
 /// Strategy:
-///   • Host Wall   → <c>doc.Create.NewOpening()</c> (rectangular).
+///   • Host Wall   → <c>doc.Create.NewOpening()</c> (rectangular or circular arc-loop).
 ///   • Host Beam   → void family placed + <c>InstanceVoidCutUtils</c>.
-///   • Linked elem → void family placed in host as a reservation marker
-///                   (linked docs cannot be modified from the host).
+///   • Linked elem → void family placed in host as a reservation marker.
 /// </summary>
 public static class VoidPlacer
 {
@@ -24,11 +23,11 @@ public static class VoidPlacer
     /// Must be called inside an open transaction.
     /// </summary>
     public static string PlaceVoids(
-        Document           doc,
+        Document                 doc,
         IEnumerable<ClashResult> clashes,
-        double             marginFeet,
-        FamilySymbol?      wallVoidSymbol,
-        FamilySymbol?      beamVoidSymbol)
+        double                   marginFeet,
+        FamilySymbol?            wallVoidSymbol,
+        FamilySymbol?            beamVoidSymbol)
     {
         int wallsOk = 0, beamsOk = 0, linked = 0, failed = 0;
 
@@ -49,7 +48,6 @@ public static class VoidPlacer
             catch (Exception ex)
             {
                 failed++;
-                // Log to Revit journal; don't rethrow so remaining clashes are processed
                 System.Diagnostics.Debug.WriteLine(
                     $"[VoidPlacer] Failed on {clash.DisplayName}: {ex.Message}");
             }
@@ -78,10 +76,7 @@ public static class VoidPlacer
             var wall = doc.GetElement(clash.ClashingElementId) as Wall;
             if (wall is null) return false;
 
-            var tray = doc.GetElement(clash.CableTrayId) as CableTray;
-            if (tray is null) return false;
-
-            CreateWallOpening(doc, wall, tray, margin);
+            CreateWallOpening(doc, wall, clash, margin);
             wallsOk++;
             return true;
         }
@@ -90,13 +85,10 @@ public static class VoidPlacer
             var beam = doc.GetElement(clash.ClashingElementId) as FamilyInstance;
             if (beam is null) return false;
 
-            var tray = doc.GetElement(clash.CableTrayId) as CableTray;
-            if (tray is null) return false;
-
             var sym = beamVoidSym ?? wallVoidSym;
-            if (sym is null) return false; // need a family
+            if (sym is null) return false;
 
-            PlaceVoidOnBeam(doc, beam, tray, sym, margin);
+            PlaceVoidOnBeam(doc, beam, clash, sym, margin);
             beamsOk++;
             return true;
         }
@@ -112,15 +104,11 @@ public static class VoidPlacer
         FamilySymbol?  beamVoidSym,
         ref int        linked)
     {
-        // We can only place a marker family in the host document.
         var sym = clash.ClashType == ClashType.Wall ? wallVoidSym : beamVoidSym;
         sym ??= wallVoidSym ?? beamVoidSym;
         if (sym is null) return false;
 
-        var tray = doc.GetElement(clash.CableTrayId) as CableTray;
-        if (tray is null) return false;
-
-        PlaceReservationFamily(doc, clash, tray, sym, margin);
+        PlaceReservationFamily(doc, clash, sym, margin);
         linked++;
         return true;
     }
@@ -128,45 +116,95 @@ public static class VoidPlacer
     // ── Wall opening ──────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Creates a rectangular opening in a wall sized to the cable tray
-    /// bounding box + margin.
+    /// Creates an opening in a wall sized to the cable tray / conduit + margin.
+    /// Uses the intersection midpoint as the opening centre.
+    /// Rectangular trays → rectangular opening.
+    /// Circular conduits → circular opening (two arcs).
     /// </summary>
     private static void CreateWallOpening(
-        Document doc, Wall wall, CableTray tray, double margin)
+        Document doc, Wall wall, ClashResult clash, double margin)
     {
-        var trayCurve = ((LocationCurve)tray.Location).Curve;
+        // ── Insertion point: centre of the intersection in the wall plane ────
+        var center = clash.IntersectionMidPoint;
 
-        // Bounding box of the tray in world coordinates
-        var bb  = tray.get_BoundingBox(null)!;
-        var bbW = wall.get_BoundingBox(null)!;
+        // If we have no intersection geometry fall back to tray bounding box
+        if (center.IsAlmostEqualTo(XYZ.Zero))
+        {
+            var mep = doc.GetElement(clash.CableTrayId);
+            if (mep is null) return;
+            center = GetCenter(mep.get_BoundingBox(null)
+                               ?? throw new InvalidOperationException("No bounding box"));
+        }
 
-        // Width (perpendicular to wall normal) and height from the tray BB
-        double halfWidth  = (bb.Max.X - bb.Min.X) / 2.0 + margin;
-        double halfHeight = (bb.Max.Z - bb.Min.Z) / 2.0 + margin;
+        // Project center onto the wall centerline (keep Z from intersection)
+        var wallCurve = ((LocationCurve)wall.Location).Curve;
+        var proj      = wallCurve.Project(center);
+        var wallCenterPt = wallCurve.Evaluate(proj.Parameter, false);
+        center = new XYZ(wallCenterPt.X, wallCenterPt.Y, center.Z);
 
-        // Mid-point of the opening (intersection mid-point)
-        var mid = clash_safe_mid(bb);
+        // ── Wall local axes ──────────────────────────────────────────────────
+        var wallDir = (wallCurve.GetEndPoint(1) - wallCurve.GetEndPoint(0)).Normalize();
+        var upDir   = XYZ.BasisZ;
 
-        // Project mid-point onto the wall face
-        var wallOrientation = wall.Orientation;
-        var wallFacePt      = ProjectOntoWallFace(wall, mid);
+        CurveArray curveArray;
 
-        // Build the corner points for the opening curve loop
-        // Opening is in the wall's local XZ plane
-        var wallDir  = ((LocationCurve)wall.Location).Curve.ComputeDerivatives(0.5, true).BasisX;
-        var upDir    = XYZ.BasisZ;
-        var rightDir = wallDir.Normalize();
+        if (clash.TrayShape == TrayShape.Circular)
+        {
+            // ── Circular opening (conduit) ───────────────────────────────────
+            double radius = clash.TrayDiameter / 2.0 + margin;
+            if (radius <= 0)
+            {
+                // Fallback: derive from bounding box if parameter not available
+                var mep = doc.GetElement(clash.CableTrayId);
+                var bb  = mep?.get_BoundingBox(null);
+                if (bb is null) return;
+                radius = Math.Max(bb.Max.X - bb.Min.X, bb.Max.Z - bb.Min.Z) / 2.0 + margin;
+            }
 
-        var p0 = wallFacePt - rightDir * halfWidth - upDir * halfHeight;
-        var p1 = wallFacePt + rightDir * halfWidth - upDir * halfHeight;
-        var p2 = wallFacePt + rightDir * halfWidth + upDir * halfHeight;
-        var p3 = wallFacePt - rightDir * halfWidth + upDir * halfHeight;
+            // Two 180° arcs forming a circle in the wall plane (right+up axes)
+            var p0 = center + wallDir * radius;
+            var p1 = center - wallDir * radius;
+            var pTop = center + upDir * radius;
+            var pBot = center - upDir * radius;
 
-        var curveArray = new CurveArray();
-        curveArray.Append(Line.CreateBound(p0, p1));
-        curveArray.Append(Line.CreateBound(p1, p2));
-        curveArray.Append(Line.CreateBound(p2, p3));
-        curveArray.Append(Line.CreateBound(p3, p0));
+            // Arc 1: right → top → left  (upper half)
+            var arc1 = Arc.Create(p0, p1, pTop);
+            // Arc 2: left → bottom → right (lower half)
+            var arc2 = Arc.Create(p1, p0, pBot);
+
+            curveArray = new CurveArray();
+            curveArray.Append(arc1);
+            curveArray.Append(arc2);
+        }
+        else
+        {
+            // ── Rectangular opening (cable tray) ─────────────────────────────
+            double halfW = (clash.TrayWidth  > 0 ? clash.TrayWidth  / 2.0 : 0.25) + margin;
+            double halfH = (clash.TrayHeight > 0 ? clash.TrayHeight / 2.0 : 0.25) + margin;
+
+            // Fallback to bounding box if parameters were zero
+            if (clash.TrayWidth <= 0 || clash.TrayHeight <= 0)
+            {
+                var mep = doc.GetElement(clash.CableTrayId);
+                var bb  = mep?.get_BoundingBox(null);
+                if (bb is not null)
+                {
+                    if (clash.TrayWidth  <= 0) halfW = (bb.Max.X - bb.Min.X) / 2.0 + margin;
+                    if (clash.TrayHeight <= 0) halfH = (bb.Max.Z - bb.Min.Z) / 2.0 + margin;
+                }
+            }
+
+            var p0 = center - wallDir * halfW - upDir * halfH;
+            var p1 = center + wallDir * halfW - upDir * halfH;
+            var p2 = center + wallDir * halfW + upDir * halfH;
+            var p3 = center - wallDir * halfW + upDir * halfH;
+
+            curveArray = new CurveArray();
+            curveArray.Append(Line.CreateBound(p0, p1));
+            curveArray.Append(Line.CreateBound(p1, p2));
+            curveArray.Append(Line.CreateBound(p2, p3));
+            curveArray.Append(Line.CreateBound(p3, p0));
+        }
 
         // true = opening cuts through the full wall thickness
         doc.Create.NewOpening(wall, curveArray, true);
@@ -176,33 +214,48 @@ public static class VoidPlacer
 
     private static void PlaceVoidOnBeam(
         Document doc, FamilyInstance beam,
-        CableTray tray, FamilySymbol voidSymbol,
+        ClashResult clash, FamilySymbol voidSymbol,
         double margin)
     {
         EnsureSymbolActive(doc, voidSymbol);
 
-        var bb         = tray.get_BoundingBox(null)!;
-        var insertPt   = GetCenter(bb);
-        var beamCurve  = ((LocationCurve)beam.Location).Curve;
-        var beamDir    = (beamCurve.GetEndPoint(1) - beamCurve.GetEndPoint(0)).Normalize();
+        // Use intersection midpoint as the insert point
+        var insertPt = clash.IntersectionMidPoint;
+        if (insertPt.IsAlmostEqualTo(XYZ.Zero))
+        {
+            var mep = doc.GetElement(clash.CableTrayId);
+            var bb  = mep?.get_BoundingBox(null);
+            if (bb is null) return;
+            insertPt = GetCenter(bb);
+        }
 
-        // Place the void family
+        var beamCurve = ((LocationCurve)beam.Location).Curve;
+        var beamDir   = (beamCurve.GetEndPoint(1) - beamCurve.GetEndPoint(0)).Normalize();
+
         var instance = doc.Create.NewFamilyInstance(
-            insertPt,
-            voidSymbol,
-            StructuralType.NonStructural);
+            insertPt, voidSymbol, StructuralType.NonStructural);
 
-        // Rotate to align with the beam direction
         AlignInstanceToDirection(doc, instance, insertPt, beamDir);
 
-        // Set width / height / depth parameters (best-effort by parameter name)
-        SetDimensionParam(instance, "Width",  bb.Max.X - bb.Min.X + 2 * margin);
-        SetDimensionParam(instance, "Height", bb.Max.Z - bb.Min.Z + 2 * margin);
-        SetDimensionParam(instance, "Depth",  beam.get_BoundingBox(null)?.Max.Y
-                                              - beam.get_BoundingBox(null)?.Min.Y
-                                              ?? 0.5);
+        // Set dimensions from clash tray parameters (with margin)
+        double beamDepth = 0;
+        var beamBb = beam.get_BoundingBox(null);
+        if (beamBb is not null) beamDepth = beamBb.Max.Y - beamBb.Min.Y;
 
-        // Connect void to beam (cuts the beam)
+        if (clash.TrayShape == TrayShape.Circular)
+        {
+            double d = clash.TrayDiameter + 2 * margin;
+            SetDimensionParam(instance, "Width",  d);
+            SetDimensionParam(instance, "Height", d);
+        }
+        else
+        {
+            SetDimensionParam(instance, "Width",  clash.TrayWidth  + 2 * margin);
+            SetDimensionParam(instance, "Height", clash.TrayHeight + 2 * margin);
+        }
+
+        SetDimensionParam(instance, "Depth", beamDepth > 0 ? beamDepth : 0.5);
+
         try { InstanceVoidCutUtils.AddInstanceVoidCut(doc, beam, instance); }
         catch { /* family may not be a void-cutting type; skip */ }
     }
@@ -211,34 +264,43 @@ public static class VoidPlacer
 
     private static void PlaceReservationFamily(
         Document doc, ClashResult clash,
-        CableTray tray, FamilySymbol symbol,
-        double margin)
+        FamilySymbol symbol, double margin)
     {
         EnsureSymbolActive(doc, symbol);
 
-        var bb       = tray.get_BoundingBox(null)!;
         var insertPt = clash.IntersectionMidPoint;
         if (insertPt.IsAlmostEqualTo(XYZ.Zero))
+        {
+            var mep = doc.GetElement(clash.CableTrayId);
+            var bb  = mep?.get_BoundingBox(null);
+            if (bb is null) return;
             insertPt = GetCenter(bb);
+        }
 
         var instance = doc.Create.NewFamilyInstance(
             insertPt, symbol, StructuralType.NonStructural);
 
-        SetDimensionParam(instance, "Width",  bb.Max.X - bb.Min.X + 2 * margin);
-        SetDimensionParam(instance, "Height", bb.Max.Z - bb.Min.Z + 2 * margin);
-        SetDimensionParam(instance, "Depth",  0.5); // unknown linked wall thickness
+        if (clash.TrayShape == TrayShape.Circular)
+        {
+            double d = clash.TrayDiameter + 2 * margin;
+            SetDimensionParam(instance, "Width",  d);
+            SetDimensionParam(instance, "Height", d);
+        }
+        else
+        {
+            SetDimensionParam(instance, "Width",  clash.TrayWidth  + 2 * margin);
+            SetDimensionParam(instance, "Height", clash.TrayHeight + 2 * margin);
+        }
 
-        // Tag it so users know it targets a linked element
-        SetTextParam(instance, "Comments",
-                     $"RESERVATION – linked: {clash.LinkName}");
+        SetDimensionParam(instance, "Depth", 0.5);
+        SetTextParam(instance, "Comments", $"RESERVATION – linked: {clash.LinkName}");
     }
 
     // ── Utility helpers ───────────────────────────────────────────────────────
 
     private static void EnsureSymbolActive(Document doc, FamilySymbol sym)
     {
-        if (!sym.IsActive)
-            sym.Activate();
+        if (!sym.IsActive) sym.Activate();
     }
 
     private static XYZ GetCenter(BoundingBoxXYZ bb) =>
@@ -246,26 +308,14 @@ public static class VoidPlacer
             (bb.Min.Y + bb.Max.Y) / 2,
             (bb.Min.Z + bb.Max.Z) / 2);
 
-    private static XYZ clash_safe_mid(BoundingBoxXYZ bb) => GetCenter(bb);
-
-    private static XYZ ProjectOntoWallFace(Wall wall, XYZ pt)
-    {
-        // Simple: return a point on the wall centerline plane at pt's height
-        var wallCurve = ((LocationCurve)wall.Location).Curve;
-        var param     = wallCurve.Project(pt).Parameter;
-        var wallPt    = wallCurve.Evaluate(param, false);
-        return new XYZ(wallPt.X, wallPt.Y, pt.Z);
-    }
-
     private static void AlignInstanceToDirection(
         Document doc, FamilyInstance inst,
         XYZ origin, XYZ direction)
     {
         if (direction.IsAlmostEqualTo(XYZ.BasisX)) return;
 
-        var axis = Line.CreateUnbound(origin, XYZ.BasisZ);
+        var axis  = Line.CreateUnbound(origin, XYZ.BasisZ);
         var angle = XYZ.BasisX.AngleTo(direction);
-        // Determine sign
         var cross = XYZ.BasisX.CrossProduct(direction);
         if (cross.Z < 0) angle = -angle;
 
@@ -300,7 +350,6 @@ public static class VoidPlacer
 
         if (!doc.LoadFamily(rfaPath, out family))
         {
-            // Family might already be loaded – look it up by name
             var familyName = Path.GetFileNameWithoutExtension(rfaPath);
             family = new FilteredElementCollector(doc)
                 .OfClass(typeof(Family))

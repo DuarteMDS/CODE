@@ -12,6 +12,13 @@ public enum ElementSource
     Linked
 }
 
+/// <summary>Cross-section shape of the MEP element (cable tray or conduit).</summary>
+public enum TrayShape
+{
+    Rectangular,
+    Circular
+}
+
 /// <summary>
 /// Represents a single detected collision between a Cable Tray and a
 /// Wall or Structural Beam (in the host model or a linked model).
@@ -40,6 +47,19 @@ public class ClashResult
     /// </summary>
     public Transform   LinkTransform       { get; set; } = Transform.Identity;
 
+    // ── MEP element shape & dimensions (in Revit internal feet) ─────────────
+    /// <summary>Cross-section shape: Rectangular (cable tray) or Circular (conduit).</summary>
+    public TrayShape TrayShape    { get; set; } = TrayShape.Rectangular;
+
+    /// <summary>Tray width (feet) – for rectangular trays.</summary>
+    public double    TrayWidth    { get; set; }
+
+    /// <summary>Tray height (feet) – for rectangular trays.</summary>
+    public double    TrayHeight   { get; set; }
+
+    /// <summary>Outer diameter (feet) – for circular conduits.</summary>
+    public double    TrayDiameter { get; set; }
+
     // ── Computed intersection geometry ───────────────────────────────────────
     /// <summary>Intersection solid (in host world coordinates).</summary>
     public Solid?      IntersectionSolid   { get; set; }
@@ -60,6 +80,10 @@ public class ClashResult
         ClashType.Beam  => "Beam",
         _               => "Unknown"
     };
+
+    public string TrayShapeDisplay => TrayShape == TrayShape.Circular
+        ? $"⬤ Ø{TrayDiameter * 304.8:F0} mm"
+        : $"▬ {TrayWidth * 304.8:F0}×{TrayHeight * 304.8:F0} mm";
 }
 
 public enum ClashType

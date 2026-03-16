@@ -28,7 +28,7 @@ public class CreateVoidsCommand : IExternalCommand
             var settings = AppSettings.Load();
 
             // Show the main WPF window
-            var window = new MainWindow(doc, settings);
+            var window = new MainWindow(uiDoc, settings);
             window.ShowDialog();
 
             return Result.Succeeded;
