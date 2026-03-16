@@ -1,0 +1,204 @@
+<Window x:Class="CableTrayVoidCutter.UI.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="Cable Tray Void Cutter"
+        Width="820" Height="620"
+        MinWidth="640" MinHeight="480"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="CanResizeWithGrip">
+
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+
+        <!-- Header style -->
+        <Style x:Key="SectionHeader" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize"   Value="12"/>
+            <Setter Property="Margin"     Value="0,6,0,4"/>
+        </Style>
+
+        <!-- Primary action button -->
+        <Style x:Key="PrimaryButton" TargetType="Button">
+            <Setter Property="Padding"     Value="14,5"/>
+            <Setter Property="FontWeight"  Value="SemiBold"/>
+            <Setter Property="Background"  Value="#0078D4"/>
+            <Setter Property="Foreground"  Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor"      Value="Hand"/>
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.5"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Secondary button -->
+        <Style x:Key="SecondaryButton" TargetType="Button">
+            <Setter Property="Padding"    Value="10,5"/>
+            <Setter Property="Cursor"     Value="Hand"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>  <!-- toolbar -->
+            <RowDefinition Height="Auto"/>  <!-- margin row -->
+            <RowDefinition Height="*"    />  <!-- clash list -->
+            <RowDefinition Height="Auto"/>  <!-- family selection -->
+            <RowDefinition Height="Auto"/>  <!-- status bar -->
+            <RowDefinition Height="Auto"/>  <!-- action buttons -->
+        </Grid.RowDefinitions>
+
+        <!-- ── Row 0: Toolbar ──────────────────────────────────────────────── -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+            <Button Content="⟳  Detect Clashes"
+                    Style="{StaticResource PrimaryButton}"
+                    Command="{Binding DetectClashesCommand}"
+                    IsEnabled="{Binding IsBusy, Converter={StaticResource BoolToVis},
+                                        ConverterParameter=inverse}"/>
+            <Button Content="Select All"
+                    Style="{StaticResource SecondaryButton}"
+                    Command="{Binding SelectAllCommand}"
+                    Margin="8,0,0,0"/>
+            <Button Content="Deselect All"
+                    Style="{StaticResource SecondaryButton}"
+                    Command="{Binding DeselectAllCommand}"
+                    Margin="4,0,0,0"/>
+            <Separator Width="1" Margin="10,2"/>
+            <Button Content="⚙ Settings"
+                    Style="{StaticResource SecondaryButton}"
+                    Command="{Binding OpenSettingsCommand}"/>
+        </StackPanel>
+
+        <!-- ── Row 1: Margin ───────────────────────────────────────────────── -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="Clearance margin:" VerticalAlignment="Center"/>
+            <TextBox Text="{Binding MarginMm, UpdateSourceTrigger=PropertyChanged}"
+                     Width="60" Margin="8,0,4,0" VerticalAlignment="Center"
+                     ToolTip="Extra clearance added around each cable tray (mm)"/>
+            <TextBlock Text="mm" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- ── Row 2: Clash list ────────────────────────────────────────────── -->
+        <GroupBox Grid.Row="2" Header="Detected Clashes" Margin="0,0,0,6">
+            <Grid>
+                <!-- Loading overlay -->
+                <ProgressBar IsIndeterminate="True"
+                             Height="4"
+                             VerticalAlignment="Top"
+                             Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"/>
+
+                <DataGrid ItemsSource="{Binding ClashResults}"
+                          AutoGenerateColumns="False"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          SelectionMode="Single"
+                          GridLinesVisibility="Horizontal"
+                          HeadersVisibility="Column"
+                          RowHeaderWidth="0"
+                          FontSize="12">
+
+                    <DataGrid.Columns>
+                        <!-- Checkbox -->
+                        <DataGridTemplateColumn Width="32" Header="">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <CheckBox IsChecked="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}"
+                                              HorizontalAlignment="Center"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+
+                        <!-- Cable Tray name -->
+                        <DataGridTextColumn Header="Cable Tray"
+                                            Binding="{Binding CableTrayName}"
+                                            Width="200"
+                                            IsReadOnly="True"/>
+
+                        <!-- Clash Type (Wall / Beam) -->
+                        <DataGridTextColumn Header="Type"
+                                            Binding="{Binding ClashTypeDisplay}"
+                                            Width="55"
+                                            IsReadOnly="True"/>
+
+                        <!-- Clashing element -->
+                        <DataGridTextColumn Header="Clashing Element"
+                                            Binding="{Binding ClashingElementName}"
+                                            Width="*"
+                                            IsReadOnly="True"/>
+
+                        <!-- Source (Host / Linked) -->
+                        <DataGridTextColumn Header="Source"
+                                            Binding="{Binding Source}"
+                                            Width="60"
+                                            IsReadOnly="True"/>
+
+                        <!-- Link name -->
+                        <DataGridTextColumn Header="Link"
+                                            Binding="{Binding LinkName}"
+                                            Width="130"
+                                            IsReadOnly="True"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+
+                <!-- Empty state message -->
+                <TextBlock Text="No clashes detected yet. Click &#x22;Detect Clashes&#x22; above."
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Foreground="Gray" FontStyle="Italic"
+                           Visibility="{Binding ClashResults.Count,
+                               Converter={StaticResource BoolToVis}}"/>
+            </Grid>
+        </GroupBox>
+
+        <!-- ── Row 3: Family selection ─────────────────────────────────────── -->
+        <GroupBox Grid.Row="3" Header="Void Families" Margin="0,0,0,6">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="20"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Wall family -->
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Wall void family:" Style="{StaticResource SectionHeader}"/>
+                    <ComboBox ItemsSource="{Binding WallFamilies}"
+                              SelectedItem="{Binding SelectedWallFamily}"
+                              DisplayMemberPath="Name"
+                              ToolTip="Family used to cut host-model walls"/>
+                </StackPanel>
+
+                <!-- Beam family -->
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Beam void family:" Style="{StaticResource SectionHeader}"/>
+                    <ComboBox ItemsSource="{Binding BeamFamilies}"
+                              SelectedItem="{Binding SelectedBeamFamily}"
+                              DisplayMemberPath="Name"
+                              ToolTip="Family used to cut structural beams"/>
+                </StackPanel>
+            </Grid>
+        </GroupBox>
+
+        <!-- ── Row 4: Status bar ────────────────────────────────────────────── -->
+        <Border Grid.Row="4" Background="#F3F3F3" BorderBrush="#DDD"
+                BorderThickness="1" Padding="6,3" Margin="0,0,0,6" CornerRadius="2">
+            <TextBlock Text="{Binding StatusMessage}" FontSize="11"/>
+        </Border>
+
+        <!-- ── Row 5: Action buttons ────────────────────────────────────────── -->
+        <StackPanel Grid.Row="5" Orientation="Horizontal"
+                    HorizontalAlignment="Right">
+            <Button Content="Apply Selected Voids"
+                    Style="{StaticResource PrimaryButton}"
+                    Command="{Binding ApplyCommand}"
+                    Margin="0,0,8,0"/>
+            <Button Content="Close"
+                    Style="{StaticResource SecondaryButton}"
+                    Click="CloseButton_Click"
+                    Padding="14,5"/>
+        </StackPanel>
+    </Grid>
+</Window>

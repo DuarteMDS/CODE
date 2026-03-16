@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>CableTray Void Cutter</Name>
+    <Assembly>CableTrayVoidCutter.dll</Assembly>
+    <FullClassName>CableTrayVoidCutter.App</FullClassName>
+    <ClientId>3E2A1F4B-8C7D-4E9A-B2F1-6D5C3A8E9071</ClientId>
+    <VendorId>CTVC</VendorId>
+    <VendorDescription>CableTray Void Cutter - Revit 2025 Plugin</VendorDescription>
+  </AddIn>
+</RevitAddIns>
