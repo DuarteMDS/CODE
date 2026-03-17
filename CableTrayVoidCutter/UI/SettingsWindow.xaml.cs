@@ -14,69 +14,39 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         _settings = settings;
 
-        // Populate controls
-        MarginBox.Text = settings.MarginMm.ToString("F1");
-
-        FamilyGrid.ItemsSource = settings.VoidFamilies;
+        MarginBox.Text    = settings.MarginMm.ToString("F1");
+        CirclePathBox.Text = settings.CircleFamilyPath ?? string.Empty;
+        RectPathBox.Text   = settings.RectangularFamilyPath ?? string.Empty;
     }
 
-    // ── Add family ────────────────────────────────────────────────────────────
+    // ── Browse buttons ────────────────────────────────────────────────────────
 
-    private void AddFamily_Click(object sender, RoutedEventArgs e)
+    private void BrowseCircle_Click(object sender, RoutedEventArgs e)
     {
-        var dlg = new OpenFileDialog
-        {
-            Title            = "Select Revit Void Family",
-            Filter           = "Revit Family (*.rfa)|*.rfa",
-            Multiselect      = true,
-            CheckFileExists  = true,
-        };
-
-        if (dlg.ShowDialog() != true) return;
-
-        foreach (var path in dlg.FileNames)
-        {
-            // Avoid duplicates
-            if (_settings.VoidFamilies.Any(f => f.FilePath == path)) continue;
-
-            var familyName = System.IO.Path.GetFileNameWithoutExtension(path);
-            var entry = new VoidFamilyEntry
-            {
-                Name       = familyName,
-                FilePath   = path,
-                TargetType = DetectTargetType(familyName)
-            };
-
-            _settings.VoidFamilies.Add(entry);
-        }
-
-        // Refresh the DataGrid
-        FamilyGrid.Items.Refresh();
+        var path = BrowseRfa("Sélectionner la famille circulaire (CEG_Resa Wall Circle)");
+        if (path is not null) CirclePathBox.Text = path;
     }
 
-    // ── Remove family ─────────────────────────────────────────────────────────
-
-    private void RemoveFamily_Click(object sender, RoutedEventArgs e)
+    private void BrowseRect_Click(object sender, RoutedEventArgs e)
     {
-        if (FamilyGrid.SelectedItem is VoidFamilyEntry selected)
-        {
-            _settings.VoidFamilies.Remove(selected);
-            FamilyGrid.Items.Refresh();
-        }
+        var path = BrowseRfa("Sélectionner la famille rectangulaire (CEG_Resa Wall Rectangular)");
+        if (path is not null) RectPathBox.Text = path;
     }
 
     // ── OK / Cancel ───────────────────────────────────────────────────────────
 
     private void OK_Click(object sender, RoutedEventArgs e)
     {
-        if (double.TryParse(MarginBox.Text, out var margin) && margin >= 0)
-            _settings.MarginMm = margin;
-        else
+        if (!double.TryParse(MarginBox.Text, out var margin) || margin < 0)
         {
-            MessageBox.Show("Please enter a valid non-negative number for the margin.",
-                            "Invalid input", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show("Veuillez saisir un nombre positif pour la marge.",
+                            "Valeur invalide", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
+
+        _settings.MarginMm              = margin;
+        _settings.CircleFamilyPath      = NullIfEmpty(CirclePathBox.Text);
+        _settings.RectangularFamilyPath = NullIfEmpty(RectPathBox.Text);
 
         DialogResult = true;
         Close();
@@ -90,29 +60,17 @@ public partial class SettingsWindow : Window
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Infers the best TargetType from a family filename.
-    /// CEG_Resa Wall Circle    → "Conduit"
-    /// CEG_Resa Wall Rectangular → "CableTray"
-    /// Other names with "conduit" / "circle" / "rond" → "Conduit"
-    /// Other names with "rect" / "rectangular" / "cable" / "ladder" → "CableTray"
-    /// </summary>
-    private static string DetectTargetType(string name)
+    private static string? BrowseRfa(string title)
     {
-        var n = name.ToLowerInvariant();
-
-        if (n.Contains("circle") || n.Contains("rond") || n.Contains("circular") || n.Contains("conduit"))
-            return "Conduit";
-
-        if (n.Contains("rectangular") || n.Contains("rectangulaire") || n.Contains("rect"))
-            return "CableTray";
-
-        if (n.Contains("ladder") || n.Contains("echelle") || n.Contains("échelle"))
-            return "LadderTray";
-
-        if (n.Contains("beam") || n.Contains("poutre"))
-            return "Beam";
-
-        return "Both";
+        var dlg = new OpenFileDialog
+        {
+            Title           = title,
+            Filter          = "Revit Family (*.rfa)|*.rfa",
+            CheckFileExists = true
+        };
+        return dlg.ShowDialog() == true ? dlg.FileName : null;
     }
+
+    private static string? NullIfEmpty(string s) =>
+        string.IsNullOrWhiteSpace(s) ? null : s;
 }

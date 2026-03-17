@@ -185,24 +185,23 @@ public class MainViewModel : INotifyPropertyChanged
         {
             double marginFeet = MarginMm / 304.8;
 
-            // Collect unique family paths from settings
-            var uniquePaths = _settings.VoidFamilies
-                .Select(f => f.FilePath)
-                .Where(p => p is not null)
-                .Distinct()
-                .ToList();
-
-            var symbolCache = new Dictionary<string, FamilySymbol>(StringComparer.OrdinalIgnoreCase);
+            FamilySymbol? circleSymbol = null, rectSymbol = null;
 
             using (var loadTx = new Transaction(_doc, "Charger familles réservations"))
             {
                 loadTx.Start();
-                foreach (var path in uniquePaths)
-                {
-                    var sym = VoidPlacer.LoadFamily(_doc, path!);
-                    if (sym is not null) symbolCache[path!] = sym;
-                }
+                circleSymbol = VoidPlacer.LoadFamily(_doc, _settings.CircleFamilyPath);
+                rectSymbol   = VoidPlacer.LoadFamily(_doc, _settings.RectangularFamilyPath);
                 loadTx.Commit();
+            }
+
+            if (circleSymbol is null && rectSymbol is null)
+            {
+                MessageBox.Show(
+                    "Aucune famille de réservation configurée.\n" +
+                    "Ouvrez les Paramètres et sélectionnez les familles CEG_Resa.",
+                    "Familles manquantes", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
             }
 
             string summary;
@@ -210,7 +209,7 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 tx.Start();
                 summary = VoidPlacer.PlaceVoids(_doc, selected, marginFeet,
-                                                _settings.VoidFamilies, symbolCache, _placementLog);
+                                                circleSymbol, rectSymbol, _placementLog);
                 tx.Commit();
             }
 

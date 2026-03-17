@@ -1,95 +1,95 @@
 <Window x:Class="CableTrayVoidCutter.UI.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Settings – Cable Tray Void Cutter"
-        Width="560" Height="460"
+        Title="Paramètres – Cable Tray Void Cutter"
+        Width="540" Height="320"
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResizeWithGrip">
 
-    <Grid Margin="12">
+    <Grid Margin="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
+            <RowDefinition Height="16"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="16"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- ── Margin ──────────────────────────────────────────────────────── -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
-            <TextBlock Text="Default clearance margin:" VerticalAlignment="Center"
-                       FontWeight="SemiBold"/>
-            <TextBox x:Name="MarginBox"
-                     Width="60" Margin="8,0,4,0" VerticalAlignment="Center"/>
-            <TextBlock Text="mm" VerticalAlignment="Center"/>
-        </StackPanel>
+        <GroupBox Grid.Row="0" Header="Marge de dégagement">
+            <StackPanel Orientation="Horizontal" Margin="4,6,4,4">
+                <TextBlock Text="Marge :" VerticalAlignment="Center" Width="60"/>
+                <TextBox x:Name="MarginBox" Width="70" VerticalAlignment="Center"/>
+                <TextBlock Text=" mm" VerticalAlignment="Center"/>
+            </StackPanel>
+        </GroupBox>
 
-        <!-- ── Family list ─────────────────────────────────────────────────── -->
-        <GroupBox Grid.Row="1" Header="Void Families (remembered for next session)">
-            <Grid>
+        <!-- ── Families ────────────────────────────────────────────────────── -->
+        <GroupBox Grid.Row="2" Header="Familles de réservation (CEG)">
+            <Grid Margin="4,6,4,6">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="8"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="180"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="80"/>
+                </Grid.ColumnDefinitions>
 
-                <DataGrid x:Name="FamilyGrid"
-                          Grid.Row="0"
-                          AutoGenerateColumns="False"
-                          CanUserAddRows="False"
-                          CanUserDeleteRows="False"
-                          SelectionMode="Single"
-                          GridLinesVisibility="Horizontal"
-                          HeadersVisibility="Column"
-                          RowHeaderWidth="0">
+                <!-- Circle -->
+                <TextBlock Grid.Row="0" Grid.Column="0"
+                           Text="Famille circulaire :"
+                           VerticalAlignment="Center"
+                           ToolTip="CEG_Resa Wall Circle — pour conduits et éléments ronds"/>
+                <TextBox   Grid.Row="0" Grid.Column="1"
+                           x:Name="CirclePathBox"
+                           IsReadOnly="True"
+                           VerticalAlignment="Center"
+                           Margin="0,0,6,0"
+                           ToolTip="CEG_Resa Wall Circle"/>
+                <Button    Grid.Row="0" Grid.Column="2"
+                           Content="Parcourir…"
+                           Click="BrowseCircle_Click"
+                           VerticalAlignment="Center"/>
 
-                    <DataGrid.Columns>
-                        <DataGridTextColumn Header="Name"       Binding="{Binding Name}"       Width="160"/>
-                        <DataGridTextColumn Header="Target"     Binding="{Binding TargetType}"  Width="70"/>
-                        <DataGridTextColumn Header="File Path"  Binding="{Binding FilePath}"    Width="*" IsReadOnly="True"/>
-                    </DataGrid.Columns>
-                </DataGrid>
-
-                <!-- Add / Remove toolbar -->
-                <StackPanel Grid.Row="1" Orientation="Horizontal"
-                            Margin="0,6,0,0">
-                    <Button Content="+ Add family (.rfa)…"
-                            Click="AddFamily_Click"
-                            Padding="10,4" Margin="0,0,6,0"/>
-                    <Button Content="✕ Remove selected"
-                            Click="RemoveFamily_Click"
-                            Padding="10,4"/>
-                </StackPanel>
+                <!-- Rectangular -->
+                <TextBlock Grid.Row="2" Grid.Column="0"
+                           Text="Famille rectangulaire :"
+                           VerticalAlignment="Center"
+                           ToolTip="CEG_Resa Wall Rectangular — pour chemins de câbles et échelles"/>
+                <TextBox   Grid.Row="2" Grid.Column="1"
+                           x:Name="RectPathBox"
+                           IsReadOnly="True"
+                           VerticalAlignment="Center"
+                           Margin="0,0,6,0"
+                           ToolTip="CEG_Resa Wall Rectangular"/>
+                <Button    Grid.Row="2" Grid.Column="2"
+                           Content="Parcourir…"
+                           Click="BrowseRect_Click"
+                           VerticalAlignment="Center"/>
             </Grid>
         </GroupBox>
 
-        <!-- ── Info note ───────────────────────────────────────────────────── -->
-        <TextBlock Grid.Row="2"
+        <!-- ── Info ────────────────────────────────────────────────────────── -->
+        <TextBlock Grid.Row="4"
                    TextWrapping="Wrap"
-                   Foreground="#555"
+                   Foreground="#666"
                    FontSize="11"
-                   Margin="0,6,0,6">
-            ℹ Familles CEG supportées : <Bold>CEG_Resa Wall Circle</Bold> (→ Conduit) et
-            <Bold>CEG_Resa Wall Rectangular</Bold> (→ CableTray + LadderTray).
-            Le type cible est auto-détecté depuis le nom du fichier.
-            Paramètres reconnus (par ordre de priorité) :
-            largeur → <Bold>GA_Reservation Largeur</Bold> / <Bold>Largeur</Bold> / <Bold>GA_Width</Bold> / <Bold>Width</Bold> ;
-            hauteur → <Bold>GA_Reservation Longueur</Bold> / <Bold>Longueur</Bold> / <Bold>GA_Height</Bold> / <Bold>Height</Bold> ;
-            épaisseur → <Bold>GA_Reservation Profondeur</Bold> / <Bold>Profondeur</Bold> / <Bold>GA_Depth</Bold> / <Bold>Depth</Bold> ;
-            diamètre → <Bold>Diametre</Bold> / <Bold>Diamètre</Bold> / <Bold>Diameter</Bold>.
-            Colonne <Bold>Target</Bold> :
-            <Bold>CableTray</Bold> = chemins de câbles (rectangulaires + échelles en fallback) ·
-            <Bold>LadderTray</Bold> = échelles à câbles dédiées ·
-            <Bold>Conduit</Bold> = conduits circulaires ·
-            <Bold>Beam</Bold> = poutres structurelles ·
-            <Bold>Both</Bold> = toutes les catégories.
+                   Margin="0,0,0,0">
+            Paramètres lus dans les familles :
+            <Bold>GA_Width</Bold> (largeur) ·
+            <Bold>GA_Height</Bold> (hauteur) ·
+            <Bold>GA_Depth</Bold> (épaisseur traversée) — valeurs en pieds.
         </TextBlock>
 
         <!-- ── OK / Cancel ─────────────────────────────────────────────────── -->
-        <StackPanel Grid.Row="3" Orientation="Horizontal"
-                    HorizontalAlignment="Right">
-            <Button Content="OK"     Click="OK_Click"     Width="80" Margin="0,0,8,0"
-                    IsDefault="True"/>
-            <Button Content="Cancel" Click="Cancel_Click" Width="80"
-                    IsCancel="True"/>
+        <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="OK"     Click="OK_Click"     Width="80" Margin="0,0,8,0" IsDefault="True"/>
+            <Button Content="Annuler" Click="Cancel_Click" Width="80" IsCancel="True"/>
         </StackPanel>
     </Grid>
 </Window>

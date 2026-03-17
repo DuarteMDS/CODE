@@ -4,30 +4,12 @@ using System.Text.Json.Serialization;
 
 namespace CableTrayVoidCutter.Models;
 
-/// <summary>
-/// Which wall orientations are included in clash detection.
-/// </summary>
+/// <summary>Which wall orientations are included in clash detection.</summary>
 public enum WallOrientationFilter
 {
-    /// <summary>Only plumb walls (standard Revit walls). Default.</summary>
-    Vertical,
-    /// <summary>Only walls whose face normal is mostly vertical (sloped / horizontal).</summary>
-    Horizontal,
-    /// <summary>All walls regardless of orientation.</summary>
-    Both
-}
-
-/// <summary>
-/// Describes a loaded void family symbol.
-/// <para>TargetType values: "CableTray" | "LadderTray" | "Conduit" | "Beam" | "Wall" | "Both"</para>
-/// </summary>
-public class VoidFamilyEntry
-{
-    public string Name        { get; set; } = string.Empty;
-    /// <summary>Full path to the .rfa file on disk.</summary>
-    public string FilePath    { get; set; } = string.Empty;
-    /// <summary>"CableTray" | "LadderTray" | "Conduit" | "Beam" | "Wall" (legacy) | "Both"</summary>
-    public string TargetType  { get; set; } = "Both";
+    Vertical,   // Only plumb walls (default)
+    Horizontal, // Only sloped / horizontal walls
+    Both        // All walls
 }
 
 /// <summary>
@@ -36,45 +18,34 @@ public class VoidFamilyEntry
 /// </summary>
 public class AppSettings
 {
-    // ── Persisted properties ─────────────────────────────────────────────────
+    // ── Clearance margin ──────────────────────────────────────────────────────
 
-    /// <summary>Margin added on every side of the cable tray, in millimetres.</summary>
+    /// <summary>Margin added around the MEP element on all sides, in millimetres.</summary>
     public double MarginMm { get; set; } = 25.0;
 
-    // ── MEP scan filters ─────────────────────────────────────────────────────
+    // ── MEP scan filters ──────────────────────────────────────────────────────
+
     public bool ScanCableTrays        { get; set; } = true;
     public bool ScanCableTrayFittings { get; set; } = true;
     public bool ScanConduits          { get; set; } = true;
 
-    /// <summary>Which wall orientations to include when detecting clashes.</summary>
     public WallOrientationFilter WallOrientation { get; set; } = WallOrientationFilter.Vertical;
 
-    /// <summary>Families available in the family picker.</summary>
-    public List<VoidFamilyEntry> VoidFamilies { get; set; } = [];
+    // ── Void families (shape-based, inspired by ConVoid) ──────────────────────
 
-    // ── Per-type last-used family paths ───────────────────────────────────────
+    /// <summary>
+    /// Path to the round/circular void family (e.g. CEG_Resa Wall Circle).
+    /// Used for conduits and any MEP element detected as circular.
+    /// </summary>
+    public string? CircleFamilyPath { get; set; }
 
-    /// <summary>Void family for horizontal cable trays (beams + linked reservations).</summary>
-    public string? LastCableTrayFamilyPath  { get; set; }
+    /// <summary>
+    /// Path to the rectangular void family (e.g. CEG_Resa Wall Rectangular).
+    /// Used for cable trays, ladder trays, and any rectangular MEP element.
+    /// </summary>
+    public string? RectangularFamilyPath { get; set; }
 
-    /// <summary>Void family for ladder trays (beams + linked reservations).</summary>
-    public string? LastLadderTrayFamilyPath { get; set; }
-
-    /// <summary>Void family for circular conduits (beams + linked reservations).</summary>
-    public string? LastConduitFamilyPath    { get; set; }
-
-    /// <summary>Void family specifically for structural beams (overrides MEP-specific when set).</summary>
-    public string? LastBeamFamilyPath       { get; set; }
-
-    // ── Legacy compat ─────────────────────────────────────────────────────────
-    /// <summary>Kept for backward compatibility; maps to LastCableTrayFamilyPath on load.</summary>
-    public string? LastWallFamilyPath
-    {
-        get => LastCableTrayFamilyPath;
-        set { if (LastCableTrayFamilyPath is null) LastCableTrayFamilyPath = value; }
-    }
-
-    // ── Persistence helpers ───────────────────────────────────────────────────
+    // ── Persistence ───────────────────────────────────────────────────────────
 
     [JsonIgnore]
     private static readonly string SettingsDir =
@@ -96,9 +67,6 @@ public class AppSettings
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
-    // ── Public API ────────────────────────────────────────────────────────────
-
-    /// <summary>Loads settings from disk, or returns defaults if not found.</summary>
     public static AppSettings Load()
     {
         try
@@ -110,38 +78,22 @@ public class AppSettings
                        ?? new AppSettings();
             }
         }
-        catch { /* corrupted file – return defaults */ }
-
+        catch { /* corrupted — return defaults */ }
         return new AppSettings();
     }
 
-    /// <summary>Saves the current settings to disk.</summary>
     public void Save()
     {
         try
         {
             Directory.CreateDirectory(SettingsDir);
-            var json = JsonSerializer.Serialize(this, JsonOpts);
-            File.WriteAllText(SettingsFile, json);
+            File.WriteAllText(SettingsFile, JsonSerializer.Serialize(this, JsonOpts));
         }
         catch { /* best-effort */ }
     }
 
-    // ── Convenience ───────────────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
-    /// <summary>Margin in Revit internal units (feet).</summary>
     [JsonIgnore]
     public double MarginFeet => MarginMm / 304.8;
-
-    public VoidFamilyEntry? GetLastCableTrayFamily() =>
-        VoidFamilies.FirstOrDefault(f => f.FilePath == LastCableTrayFamilyPath);
-
-    public VoidFamilyEntry? GetLastLadderTrayFamily() =>
-        VoidFamilies.FirstOrDefault(f => f.FilePath == LastLadderTrayFamilyPath);
-
-    public VoidFamilyEntry? GetLastConduitFamily() =>
-        VoidFamilies.FirstOrDefault(f => f.FilePath == LastConduitFamilyPath);
-
-    public VoidFamilyEntry? GetLastBeamFamily() =>
-        VoidFamilies.FirstOrDefault(f => f.FilePath == LastBeamFamilyPath);
 }
