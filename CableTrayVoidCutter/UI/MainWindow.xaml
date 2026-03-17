@@ -5,22 +5,20 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
         Title="Cable Tray Void Cutter"
-        Width="900" Height="640"
-        MinWidth="700" MinHeight="500"
+        Width="960" Height="780"
+        MinWidth="720" MinHeight="560"
         WindowStartupLocation="CenterScreen"
         ResizeMode="CanResizeWithGrip">
 
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
-        <!-- Header style -->
         <Style x:Key="SectionHeader" TargetType="TextBlock">
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="FontSize"   Value="12"/>
-            <Setter Property="Margin"     Value="0,6,0,4"/>
+            <Setter Property="FontSize"   Value="11"/>
+            <Setter Property="Margin"     Value="0,4,0,3"/>
         </Style>
 
-        <!-- Primary action button -->
         <Style x:Key="PrimaryButton" TargetType="Button">
             <Setter Property="Padding"         Value="14,5"/>
             <Setter Property="FontWeight"      Value="SemiBold"/>
@@ -35,72 +33,80 @@
             </Style.Triggers>
         </Style>
 
-        <!-- Secondary button -->
         <Style x:Key="SecondaryButton" TargetType="Button">
             <Setter Property="Padding" Value="10,5"/>
             <Setter Property="Cursor"  Value="Hand"/>
         </Style>
 
-        <!-- Small icon button (in DataGrid rows) -->
         <Style x:Key="IconButton" TargetType="Button">
             <Setter Property="Padding"         Value="4,2"/>
             <Setter Property="Cursor"          Value="Hand"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Background"      Value="Transparent"/>
             <Setter Property="FontSize"        Value="13"/>
-            <Setter Property="ToolTip"         Value="Zoom to this clash in Revit and select elements"/>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
                     <Setter Property="Background" Value="#E0E0E0"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
+
+        <!-- Warning accent style -->
+        <Style x:Key="WarningButton" TargetType="Button">
+            <Setter Property="Padding"         Value="10,4"/>
+            <Setter Property="Background"      Value="#E65C00"/>
+            <Setter Property="Foreground"      Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor"          Value="Hand"/>
+        </Style>
     </Window.Resources>
 
     <Grid Margin="12">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>  <!-- toolbar -->
+            <RowDefinition Height="Auto"/>  <!-- 0: toolbar -->
             <RowDefinition Height="Auto"/>  <!-- 1: mep filter -->
-            <RowDefinition Height="Auto"/>  <!-- 2: margin row -->
-            <RowDefinition Height="*"    />  <!-- 3: clash list -->
+            <RowDefinition Height="Auto"/>  <!-- 2: margin -->
+            <RowDefinition Height="2*"  />  <!-- 3: clash list -->
             <RowDefinition Height="Auto"/>  <!-- 4: family selection -->
-            <RowDefinition Height="Auto"/>  <!-- 5: status bar -->
-            <RowDefinition Height="Auto"/>  <!-- 6: action buttons -->
+            <RowDefinition Height="*"   />  <!-- 5: alignment panel -->
+            <RowDefinition Height="Auto"/>  <!-- 6: status bar -->
+            <RowDefinition Height="Auto"/>  <!-- 7: action buttons -->
         </Grid.RowDefinitions>
 
         <!-- ── Row 0: Toolbar ──────────────────────────────────────────────── -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
-            <Button Content="⟳  Detect Clashes"
+            <Button Content="⟳  Détecter conflits"
                     Style="{StaticResource PrimaryButton}"
-                    Command="{Binding DetectClashesCommand}"
-                    IsEnabled="{Binding IsBusy,
-                                        RelativeSource={RelativeSource AncestorType=Window},
-                                        Converter={StaticResource BoolToVis}}"/>
-            <Button Content="Select All"
+                    Command="{Binding DetectClashesCommand}"/>
+            <Button Content="Tout sélectionner"
                     Style="{StaticResource SecondaryButton}"
                     Command="{Binding SelectAllCommand}"
                     Margin="8,0,0,0"/>
-            <Button Content="Deselect All"
+            <Button Content="Tout désélectionner"
                     Style="{StaticResource SecondaryButton}"
                     Command="{Binding DeselectAllCommand}"
                     Margin="4,0,0,0"/>
             <Separator Width="1" Margin="10,2"/>
-            <Button Content="⚙ Settings"
+            <Button Content="⚙ Paramètres"
                     Style="{StaticResource SecondaryButton}"
                     Command="{Binding OpenSettingsCommand}"/>
+            <Separator Width="1" Margin="10,2"/>
+            <Button Content="⚠ Vérifier alignements"
+                    Style="{StaticResource WarningButton}"
+                    Command="{Binding CheckAlignmentCommand}"
+                    ToolTip="Compare les positions actuelles des éléments MEP avec celles mémorisées lors de l'insertion"/>
         </StackPanel>
 
         <!-- ── Row 1: MEP element filter ───────────────────────────────────── -->
         <Border Grid.Row="1" Background="#F0F4FF" BorderBrush="#B8C8E8"
                 BorderThickness="1" CornerRadius="3" Padding="8,5" Margin="0,0,0,8">
             <WrapPanel Orientation="Horizontal">
-                <!-- MEP categories -->
                 <TextBlock Text="Éléments MEP :" VerticalAlignment="Center"
                            FontWeight="SemiBold" Margin="0,0,10,0"/>
                 <CheckBox Content="Chemins de câbles"
                           IsChecked="{Binding ScanCableTrays}"
                           VerticalAlignment="Center" Margin="0,0,16,0"
-                          ToolTip="Inclure les chemins de câbles droits"/>
+                          ToolTip="Inclure les chemins de câbles droits (détection auto. chemin/échelle)"/>
                 <CheckBox Content="Raccords CT"
                           IsChecked="{Binding ScanCableTrayFittings}"
                           VerticalAlignment="Center" Margin="0,0,16,0"
@@ -109,16 +115,11 @@
                           IsChecked="{Binding ScanConduits}"
                           VerticalAlignment="Center"
                           ToolTip="Inclure les conduits circulaires"/>
-
-                <!-- Separator -->
                 <Separator Width="1" Margin="14,2"/>
-
-                <!-- Wall orientation filter -->
                 <TextBlock Text="Murs :" VerticalAlignment="Center"
                            FontWeight="SemiBold" Margin="8,0,8,0"/>
                 <ComboBox SelectedItem="{Binding WallOrientationLabel}"
-                          Width="180" VerticalAlignment="Center"
-                          ToolTip="Choisir l'orientation des murs à analyser">
+                          Width="180" VerticalAlignment="Center">
                     <ComboBoxItem>Verticaux uniquement</ComboBoxItem>
                     <ComboBoxItem>Horizontal uniquement</ComboBoxItem>
                     <ComboBoxItem>Verticaux et horizontaux</ComboBoxItem>
@@ -128,31 +129,34 @@
 
         <!-- ── Row 2: Margin ───────────────────────────────────────────────── -->
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
-            <TextBlock Text="Clearance margin:" VerticalAlignment="Center"/>
+            <TextBlock Text="Marge de dégagement :" VerticalAlignment="Center"/>
             <TextBox Text="{Binding MarginMm, UpdateSourceTrigger=PropertyChanged}"
                      Width="60" Margin="8,0,4,0" VerticalAlignment="Center"
-                     ToolTip="Extra clearance added around each cable tray / conduit (mm)"/>
+                     ToolTip="Marge supplémentaire autour du chemin de câbles / conduit (mm)"/>
             <TextBlock Text="mm" VerticalAlignment="Center"/>
+            <TextBlock Text="   ℹ Ctrl+clic ou Shift+clic pour sélectionner plusieurs lignes"
+                       VerticalAlignment="Center" Foreground="#666" FontSize="10" Margin="12,0,0,0"/>
         </StackPanel>
 
         <!-- ── Row 3: Clash list ────────────────────────────────────────────── -->
-        <GroupBox Grid.Row="3" Header="Detected Clashes" Margin="0,0,0,6">
+        <GroupBox Grid.Row="3" Header="Conflits détectés" Margin="0,0,0,6">
             <Grid>
-                <!-- Loading overlay -->
-                <ProgressBar IsIndeterminate="True"
-                             Height="4"
-                             VerticalAlignment="Top"
+                <ProgressBar IsIndeterminate="True" Height="4" VerticalAlignment="Top"
                              Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"/>
 
-                <DataGrid ItemsSource="{Binding ClashResults}"
+                <!-- x:Name for code-behind Ctrl/Shift handler -->
+                <DataGrid x:Name="ClashGrid"
+                          ItemsSource="{Binding ClashResults}"
                           AutoGenerateColumns="False"
                           CanUserAddRows="False"
                           CanUserDeleteRows="False"
-                          SelectionMode="Single"
+                          SelectionMode="Extended"
+                          SelectionUnit="FullRow"
                           GridLinesVisibility="Horizontal"
                           HeadersVisibility="Column"
                           RowHeaderWidth="0"
-                          FontSize="12">
+                          FontSize="12"
+                          PreviewMouseLeftButtonDown="ClashGrid_PreviewMouseLeftButtonDown">
 
                     <DataGrid.Columns>
 
@@ -168,49 +172,36 @@
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
 
-                        <!-- MEP element name -->
-                        <DataGridTextColumn Header="MEP Element"
+                        <DataGridTextColumn Header="Élément MEP"
                                             Binding="{Binding CableTrayName}"
-                                            Width="180"
-                                            IsReadOnly="True"/>
+                                            Width="165" IsReadOnly="True"/>
 
-                        <!-- MEP category (Cable Tray / CT Fitting / Conduit) -->
-                        <DataGridTextColumn Header="Category"
+                        <!-- Category shows Cable Tray / Ladder Tray / Conduit / CT Fitting -->
+                        <DataGridTextColumn Header="Catégorie"
                                             Binding="{Binding MepCategoryDisplay}"
-                                            Width="80"
-                                            IsReadOnly="True"/>
+                                            Width="90" IsReadOnly="True"/>
 
-                        <!-- Shape + dimensions (Rect or Circular) -->
-                        <DataGridTextColumn Header="Shape"
+                        <DataGridTextColumn Header="Forme"
                                             Binding="{Binding TrayShapeDisplay}"
-                                            Width="120"
-                                            IsReadOnly="True"/>
+                                            Width="120" IsReadOnly="True"/>
 
-                        <!-- Clash Type (Wall / Beam) -->
                         <DataGridTextColumn Header="Type"
                                             Binding="{Binding ClashTypeDisplay}"
-                                            Width="55"
-                                            IsReadOnly="True"/>
+                                            Width="55" IsReadOnly="True"/>
 
-                        <!-- Clashing element -->
-                        <DataGridTextColumn Header="Clashing Element"
+                        <DataGridTextColumn Header="Élément en conflit"
                                             Binding="{Binding ClashingElementName}"
-                                            Width="*"
-                                            IsReadOnly="True"/>
+                                            Width="*" IsReadOnly="True"/>
 
-                        <!-- Source (Host / Linked) -->
                         <DataGridTextColumn Header="Source"
                                             Binding="{Binding Source}"
-                                            Width="60"
-                                            IsReadOnly="True"/>
+                                            Width="60" IsReadOnly="True"/>
 
-                        <!-- Link name -->
-                        <DataGridTextColumn Header="Link"
+                        <DataGridTextColumn Header="Lien"
                                             Binding="{Binding LinkName}"
-                                            Width="120"
-                                            IsReadOnly="True"/>
+                                            Width="110" IsReadOnly="True"/>
 
-                        <!-- "Show in Revit" button -->
+                        <!-- Zoom to clash -->
                         <DataGridTemplateColumn Width="38" Header="🔍">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
@@ -219,7 +210,7 @@
                                             Command="{Binding DataContext.ShowInRevitCommand,
                                                       RelativeSource={RelativeSource AncestorType=DataGrid}}"
                                             CommandParameter="{Binding}"
-                                            ToolTip="Zoom to clash and select elements in Revit"/>
+                                            ToolTip="Zoomer sur ce conflit dans Revit (section box en vue 3D)"/>
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
@@ -227,8 +218,7 @@
                     </DataGrid.Columns>
                 </DataGrid>
 
-                <!-- Empty state message -->
-                <TextBlock Text="No clashes detected yet. Click &quot;Detect Clashes&quot; above."
+                <TextBlock Text="Aucun conflit détecté. Cliquez sur « Détecter conflits » ci-dessus."
                            HorizontalAlignment="Center" VerticalAlignment="Center"
                            Foreground="Gray" FontStyle="Italic"
                            Visibility="{Binding ClashResults.Count,
@@ -236,49 +226,128 @@
             </Grid>
         </GroupBox>
 
-        <!-- ── Row 4: Family selection ─────────────────────────────────────── -->
-        <GroupBox Grid.Row="4" Header="Void Families (optionnel pour les murs)" Margin="0,0,0,6">
+        <!-- ── Row 4: Family selection (per MEP type) ──────────────────────── -->
+        <GroupBox Grid.Row="4" Header="Familles de réservation (par type MEP)" Margin="0,0,0,6">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="20"/>
+                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="10"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- Wall family -->
+                <!-- Cable Tray family (horizontal) -->
                 <StackPanel Grid.Column="0">
-                    <TextBlock Text="Wall void family:" Style="{StaticResource SectionHeader}"/>
-                    <ComboBox ItemsSource="{Binding WallFamilies}"
-                              SelectedItem="{Binding SelectedWallFamily}"
+                    <TextBlock Text="⬛ Chemin de câbles :" Style="{StaticResource SectionHeader}"
+                               ToolTip="Famille utilisée pour les chemins de câbles horizontaux"/>
+                    <ComboBox ItemsSource="{Binding CableTrayFamilies}"
+                              SelectedItem="{Binding SelectedCableTrayFamily}"
                               DisplayMemberPath="Name"
-                              ToolTip="Family used to cut host-model walls (not required – openings are created automatically)"/>
+                              ToolTip="Famille réservation – chemins de câbles (horizontal)"/>
+                </StackPanel>
+
+                <!-- Ladder Tray family (vertical) -->
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="🔲 Échelle à câbles :" Style="{StaticResource SectionHeader}"
+                               ToolTip="Famille utilisée pour les échelles à câbles (vertical)"/>
+                    <ComboBox ItemsSource="{Binding LadderTrayFamilies}"
+                              SelectedItem="{Binding SelectedLadderTrayFamily}"
+                              DisplayMemberPath="Name"
+                              ToolTip="Famille réservation – échelles à câbles (vertical)"/>
+                </StackPanel>
+
+                <!-- Conduit family (circular) -->
+                <StackPanel Grid.Column="4">
+                    <TextBlock Text="⬤ Conduit :" Style="{StaticResource SectionHeader}"
+                               ToolTip="Famille utilisée pour les conduits circulaires"/>
+                    <ComboBox ItemsSource="{Binding ConduitFamilies}"
+                              SelectedItem="{Binding SelectedConduitFamily}"
+                              DisplayMemberPath="Name"
+                              ToolTip="Famille réservation – conduits circulaires"/>
                 </StackPanel>
 
                 <!-- Beam family -->
-                <StackPanel Grid.Column="2">
-                    <TextBlock Text="Beam void family:" Style="{StaticResource SectionHeader}"/>
+                <StackPanel Grid.Column="6">
+                    <TextBlock Text="▤ Poutre (prioritaire) :" Style="{StaticResource SectionHeader}"
+                               ToolTip="Famille vide coupe – poutres structurelles (prioritaire sur les familles ci-dessus)"/>
                     <ComboBox ItemsSource="{Binding BeamFamilies}"
                               SelectedItem="{Binding SelectedBeamFamily}"
                               DisplayMemberPath="Name"
-                              ToolTip="Family used to cut structural beams (required for beam voids)"/>
+                              ToolTip="Famille vide – poutres (override sur le type MEP)"/>
                 </StackPanel>
             </Grid>
         </GroupBox>
 
-        <!-- ── Row 5: Status bar ────────────────────────────────────────────── -->
-        <Border Grid.Row="5" Background="#F3F3F3" BorderBrush="#DDD"
+        <!-- ── Row 5: Alignment panel ───────────────────────────────────────── -->
+        <GroupBox Grid.Row="5"
+                  Header="{Binding MisalignedVoids.Count,
+                           StringFormat='Réservations à réaligner ({0})'}"
+                  Margin="0,0,0,6">
+            <Grid>
+                <DataGrid ItemsSource="{Binding MisalignedVoids}"
+                          AutoGenerateColumns="False"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          SelectionMode="Single"
+                          GridLinesVisibility="Horizontal"
+                          HeadersVisibility="Column"
+                          RowHeaderWidth="0"
+                          FontSize="11">
+                    <DataGrid.Columns>
+
+                        <DataGridTextColumn Header="Réservation"
+                                            Binding="{Binding VoidName}"
+                                            Width="*" IsReadOnly="True"/>
+
+                        <DataGridTextColumn Header="Élément MEP"
+                                            Binding="{Binding MepName}"
+                                            Width="*" IsReadOnly="True"/>
+
+                        <DataGridTextColumn Header="Écart"
+                                            Binding="{Binding DeltaDisplay}"
+                                            Width="70" IsReadOnly="True"/>
+
+                        <DataGridTemplateColumn Width="38" Header="🔍">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Button Content="🎯"
+                                            Style="{StaticResource IconButton}"
+                                            Command="{Binding DataContext.ZoomToMisalignedCommand,
+                                                      RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                            CommandParameter="{Binding}"
+                                            ToolTip="Zoomer sur cet élément dans Revit"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+
+                    </DataGrid.Columns>
+                </DataGrid>
+
+                <TextBlock Text="Aucun désalignement détecté. Cliquez sur « Vérifier alignements »."
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Foreground="Gray" FontStyle="Italic"
+                           Visibility="{Binding MisalignedVoids.Count,
+                               Converter={StaticResource BoolToVis}}"/>
+            </Grid>
+        </GroupBox>
+
+        <!-- ── Row 6: Status bar ────────────────────────────────────────────── -->
+        <Border Grid.Row="6" Background="#F3F3F3" BorderBrush="#DDD"
                 BorderThickness="1" Padding="6,3" Margin="0,0,0,6" CornerRadius="2">
             <TextBlock Text="{Binding StatusMessage}" FontSize="11"/>
         </Border>
 
-        <!-- ── Row 6: Action buttons ────────────────────────────────────────── -->
-        <StackPanel Grid.Row="6" Orientation="Horizontal"
+        <!-- ── Row 7: Action buttons ────────────────────────────────────────── -->
+        <StackPanel Grid.Row="7" Orientation="Horizontal"
                     HorizontalAlignment="Right">
-            <Button Content="Apply Selected Voids"
+            <Button Content="Insérer les réservations sélectionnées"
                     Style="{StaticResource PrimaryButton}"
                     Command="{Binding ApplyCommand}"
                     Margin="0,0,8,0"/>
-            <Button Content="Close"
+            <Button Content="Fermer"
                     Style="{StaticResource SecondaryButton}"
                     Click="CloseButton_Click"
                     Padding="14,5"/>

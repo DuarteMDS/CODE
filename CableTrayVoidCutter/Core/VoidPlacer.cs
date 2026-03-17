@@ -12,7 +12,13 @@ namespace CableTrayVoidCutter.Core;
 /// Strategy:
 ///   • Host Wall   → <c>doc.Create.NewOpening()</c> (rectangular or circular arc-loop).
 ///   • Host Beam   → void family placed + <c>InstanceVoidCutUtils</c>.
-///   • Linked elem → void family placed in host as a reservation marker.
+///   • Linked elem → GA_Reservation family placed in host as coordination marker.
+///
+/// Family selection priority per MEP sub-type:
+///   • Conduit     → conduitVoidSymbol  → cableTrayVoidSymbol (fallback)
+///   • Ladder tray → ladderTrayVoidSymbol → cableTrayVoidSymbol (fallback)
+///   • Cable tray  → cableTrayVoidSymbol
+///   • Beam (any)  → beamVoidSymbol → MEP-specific symbol (fallback)
 /// </summary>
 public static class VoidPlacer
 {
@@ -22,28 +28,86 @@ public static class VoidPlacer
     /// Processes all selected clashes and returns a summary message.
     /// Must be called inside an open transaction.
     /// </summary>
+    /// <param name="doc">Active Revit document.</param>
+    /// <param name="clashes">Clash list (only IsSelected items processed).</param>
+    /// <param name="marginFeet">Clearance margin in feet.</param>
+    /// <param name="cableTrayVoidSymbol">Void family for horizontal cable trays.</param>
+    /// <param name="ladderTrayVoidSymbol">Void family for ladder trays.</param>
+    /// <param name="conduitVoidSymbol">Void family for circular conduits.</param>
+    /// <param name="beamVoidSymbol">Void family for structural beams (overrides MEP-specific).</param>
+    /// <param name="placementLog">Optional log to record inserted voids for alignment tracking.</param>
     public static string PlaceVoids(
         Document                 doc,
         IEnumerable<ClashResult> clashes,
         double                   marginFeet,
-        FamilySymbol?            wallVoidSymbol,
-        FamilySymbol?            beamVoidSymbol)
+        FamilySymbol?            cableTrayVoidSymbol,
+        FamilySymbol?            ladderTrayVoidSymbol,
+        FamilySymbol?            conduitVoidSymbol,
+        FamilySymbol?            beamVoidSymbol,
+        VoidPlacementLog?        placementLog = null)
     {
         int wallsOk = 0, beamsOk = 0, linked = 0, failed = 0;
+        string docPath = doc.PathName;
 
         foreach (var clash in clashes.Where(c => c.IsSelected))
         {
             try
             {
-                bool ok = clash.Source == ElementSource.Host
-                    ? PlaceHostVoid(doc, clash, marginFeet,
-                                    wallVoidSymbol, beamVoidSymbol,
-                                    ref wallsOk, ref beamsOk)
-                    : PlaceLinkedVoid(doc, clash, marginFeet,
-                                      wallVoidSymbol, beamVoidSymbol,
-                                      ref linked);
+                ElementId? placedId = null;
 
-                if (!ok) failed++;
+                if (clash.Source == ElementSource.Host)
+                {
+                    if (clash.ClashType == ClashType.Wall)
+                    {
+                        var wall = doc.GetElement(clash.ClashingElementId) as Wall;
+                        if (wall is null) { failed++; continue; }
+
+                        placedId = CreateWallOpening(doc, wall, clash, marginFeet);
+                        wallsOk++;
+                    }
+                    else // Beam
+                    {
+                        var beam = doc.GetElement(clash.ClashingElementId) as FamilyInstance;
+                        if (beam is null) { failed++; continue; }
+
+                        var sym = beamVoidSymbol ?? SelectMepSymbol(clash,
+                                      cableTrayVoidSymbol, ladderTrayVoidSymbol, conduitVoidSymbol);
+                        if (sym is null) { failed++; continue; }
+
+                        placedId = PlaceVoidOnBeam(doc, beam, clash, sym, marginFeet);
+                        beamsOk++;
+                    }
+                }
+                else // Linked
+                {
+                    var sym = SelectMepSymbol(clash,
+                                  cableTrayVoidSymbol, ladderTrayVoidSymbol, conduitVoidSymbol);
+                    sym ??= beamVoidSymbol;
+                    if (sym is null) { failed++; continue; }
+
+                    placedId = PlaceReservationFamily(doc, clash, sym, marginFeet);
+                    linked++;
+                }
+
+                // Record placement for alignment tracking
+                if (placedId is not null && placementLog is not null)
+                {
+                    var mepElem = doc.GetElement(clash.CableTrayId);
+                    var mepBb   = mepElem?.get_BoundingBox(null);
+                    if (mepBb is not null)
+                    {
+                        placementLog.Upsert(new VoidPlacementRecord
+                        {
+                            VoidElementId = placedId.Value,
+                            MepElementId  = clash.CableTrayId.Value,
+                            MepX          = (mepBb.Min.X + mepBb.Max.X) / 2.0,
+                            MepY          = (mepBb.Min.Y + mepBb.Max.Y) / 2.0,
+                            MepZ          = (mepBb.Min.Z + mepBb.Max.Z) / 2.0,
+                            DocumentPath  = docPath,
+                            Timestamp     = DateTime.UtcNow
+                        });
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -60,138 +124,79 @@ public static class VoidPlacer
                $"  Errors                : {failed}";
     }
 
-    // ── Host elements ─────────────────────────────────────────────────────────
+    // ── Symbol selection ──────────────────────────────────────────────────────
 
-    private static bool PlaceHostVoid(
-        Document       doc,
-        ClashResult    clash,
-        double         margin,
-        FamilySymbol?  wallVoidSym,
-        FamilySymbol?  beamVoidSym,
-        ref int        wallsOk,
-        ref int        beamsOk)
+    private static FamilySymbol? SelectMepSymbol(
+        ClashResult   clash,
+        FamilySymbol? cableTraySymbol,
+        FamilySymbol? ladderTraySymbol,
+        FamilySymbol? conduitSymbol)
     {
-        if (clash.ClashType == ClashType.Wall)
-        {
-            var wall = doc.GetElement(clash.ClashingElementId) as Wall;
-            if (wall is null) return false;
+        if (clash.MepCategory == MepCategory.Conduit)
+            return conduitSymbol ?? cableTraySymbol;
 
-            CreateWallOpening(doc, wall, clash, margin);
-            wallsOk++;
-            return true;
-        }
-        else // Beam
-        {
-            var beam = doc.GetElement(clash.ClashingElementId) as FamilyInstance;
-            if (beam is null) return false;
+        if (clash.IsLadderTray)
+            return ladderTraySymbol ?? cableTraySymbol;
 
-            var sym = beamVoidSym ?? wallVoidSym;
-            if (sym is null) return false;
-
-            PlaceVoidOnBeam(doc, beam, clash, sym, margin);
-            beamsOk++;
-            return true;
-        }
-    }
-
-    // ── Linked elements ───────────────────────────────────────────────────────
-
-    private static bool PlaceLinkedVoid(
-        Document       doc,
-        ClashResult    clash,
-        double         margin,
-        FamilySymbol?  wallVoidSym,
-        FamilySymbol?  beamVoidSym,
-        ref int        linked)
-    {
-        var sym = clash.ClashType == ClashType.Wall ? wallVoidSym : beamVoidSym;
-        sym ??= wallVoidSym ?? beamVoidSym;
-        if (sym is null) return false;
-
-        PlaceReservationFamily(doc, clash, sym, margin);
-        linked++;
-        return true;
+        return cableTraySymbol;
     }
 
     // ── Wall opening ──────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Creates an opening in a wall sized to the cable tray / conduit + margin.
-    /// Uses the intersection midpoint as the opening centre.
-    /// Rectangular trays → rectangular opening.
-    /// Circular conduits → circular opening (two arcs).
+    /// Creates a native opening in the wall and returns its ElementId for logging.
     /// </summary>
-    private static void CreateWallOpening(
+    private static ElementId? CreateWallOpening(
         Document doc, Wall wall, ClashResult clash, double margin)
     {
-        // ── Insertion point: centre of the intersection in the wall plane ────
         var center = clash.IntersectionMidPoint;
 
-        // Always fetch the MEP element to derive its geometric Z centre
         var mep   = doc.GetElement(clash.CableTrayId);
         var mepBb = mep?.get_BoundingBox(null);
 
-        // If no intersection XY, fall back to tray bounding box centre
         if (center.IsAlmostEqualTo(XYZ.Zero))
         {
-            if (mepBb is null) return;
+            if (mepBb is null) return null;
             center = GetCenter(mepBb);
         }
 
-        // Use the cable tray / fitting bounding-box Z midpoint so the void
-        // is aligned to the element's geometric centre, not the intersection centroid.
         double centerZ = mepBb is not null
             ? (mepBb.Min.Z + mepBb.Max.Z) / 2.0
             : center.Z;
 
-        // Project XY onto the wall centreline; apply tray-derived Z
         var wallCurve    = ((LocationCurve)wall.Location).Curve;
         var proj         = wallCurve.Project(center);
         var wallCenterPt = wallCurve.Evaluate(proj.Parameter, false);
         center = new XYZ(wallCenterPt.X, wallCenterPt.Y, centerZ);
 
-        // ── Wall local axes ──────────────────────────────────────────────────
         var wallDir = (wallCurve.GetEndPoint(1) - wallCurve.GetEndPoint(0)).Normalize();
-        // upDir must lie in the wall face plane and be perpendicular to wallDir.
-        // wallDir × wall.Orientation gives BasisZ for a plumb wall, and a
-        // horizontal axis for a horizontal/sloped wall – both are correct.
         var upDir   = wallDir.CrossProduct(wall.Orientation).Normalize();
 
         CurveArray curveArray;
 
         if (clash.TrayShape == TrayShape.Circular)
         {
-            // ── Circular opening (conduit) ───────────────────────────────────
             double radius = clash.TrayDiameter / 2.0 + margin;
             if (radius <= 0)
             {
-                // Fallback: derive from bounding box if parameter not available
-                if (mepBb is null) return;
+                if (mepBb is null) return null;
                 radius = Math.Max(mepBb.Max.X - mepBb.Min.X, mepBb.Max.Z - mepBb.Min.Z) / 2.0 + margin;
             }
 
-            // Two 180° arcs forming a circle in the wall plane (right+up axes)
-            var p0 = center + wallDir * radius;
-            var p1 = center - wallDir * radius;
+            var p0   = center + wallDir * radius;
+            var p1   = center - wallDir * radius;
             var pTop = center + upDir * radius;
             var pBot = center - upDir * radius;
 
-            // Arc 1: right → top → left  (upper half)
-            var arc1 = Arc.Create(p0, p1, pTop);
-            // Arc 2: left → bottom → right (lower half)
-            var arc2 = Arc.Create(p1, p0, pBot);
-
             curveArray = new CurveArray();
-            curveArray.Append(arc1);
-            curveArray.Append(arc2);
+            curveArray.Append(Arc.Create(p0, p1, pTop));
+            curveArray.Append(Arc.Create(p1, p0, pBot));
         }
         else
         {
-            // ── Rectangular opening (cable tray) ─────────────────────────────
             double halfW = (clash.TrayWidth  > 0 ? clash.TrayWidth  / 2.0 : 0.25) + margin;
             double halfH = (clash.TrayHeight > 0 ? clash.TrayHeight / 2.0 : 0.25) + margin;
 
-            // Fallback to bounding box if parameters were zero
             if ((clash.TrayWidth <= 0 || clash.TrayHeight <= 0) && mepBb is not null)
             {
                 if (clash.TrayWidth  <= 0) halfW = (mepBb.Max.X - mepBb.Min.X) / 2.0 + margin;
@@ -210,38 +215,34 @@ public static class VoidPlacer
             curveArray.Append(Line.CreateBound(p3, p0));
         }
 
-        // true = opening cuts through the full wall thickness
-        doc.Create.NewOpening(wall, curveArray, true);
+        var opening = doc.Create.NewOpening(wall, curveArray, true);
+        return opening?.Id;
     }
 
     // ── Beam void (family instance) ───────────────────────────────────────────
 
-    private static void PlaceVoidOnBeam(
+    private static ElementId? PlaceVoidOnBeam(
         Document doc, FamilyInstance beam,
         ClashResult clash, FamilySymbol voidSymbol,
         double margin)
     {
         EnsureSymbolActive(doc, voidSymbol);
 
-        // Use intersection midpoint as the insert point
-        var insertPt = clash.IntersectionMidPoint;
-        if (insertPt.IsAlmostEqualTo(XYZ.Zero))
-        {
-            var mep = doc.GetElement(clash.CableTrayId);
-            var bb  = mep?.get_BoundingBox(null);
-            if (bb is null) return;
-            insertPt = GetCenter(bb);
-        }
+        var insertPt = ResolveInsertPoint(doc, clash);
+        if (insertPt is null) return null;
 
         var beamCurve = ((LocationCurve)beam.Location).Curve;
         var beamDir   = (beamCurve.GetEndPoint(1) - beamCurve.GetEndPoint(0)).Normalize();
 
-        var instance = doc.Create.NewFamilyInstance(
-            insertPt, voidSymbol, StructuralType.NonStructural);
+        var level    = GetNearestLevel(doc, insertPt.Z);
+        var instance = level is not null
+            ? doc.Create.NewFamilyInstance(insertPt, voidSymbol, level,
+                                           StructuralType.NonStructural)
+            : doc.Create.NewFamilyInstance(insertPt, voidSymbol,
+                                           StructuralType.NonStructural);
 
         AlignInstanceToDirection(doc, instance, insertPt, beamDir);
 
-        // Set dimensions from clash tray parameters (with margin)
         double beamDepth = 0;
         var beamBb = beam.get_BoundingBox(null);
         if (beamBb is not null) beamDepth = beamBb.Max.Y - beamBb.Min.Y;
@@ -249,65 +250,105 @@ public static class VoidPlacer
         if (clash.TrayShape == TrayShape.Circular)
         {
             double d = clash.TrayDiameter + 2 * margin;
-            SetDimensionParam(instance, "Width",  d);
-            SetDimensionParam(instance, "Height", d);
+            SetDimParam(instance, d,  "GA_Reservation Largeur",  "Width");
+            SetDimParam(instance, d,  "GA_Reservation Longueur", "Height");
         }
         else
         {
-            SetDimensionParam(instance, "Width",  clash.TrayWidth  + 2 * margin);
-            SetDimensionParam(instance, "Height", clash.TrayHeight + 2 * margin);
+            SetDimParam(instance, clash.TrayWidth  + 2 * margin,
+                        "GA_Reservation Largeur",  "Width");
+            SetDimParam(instance, clash.TrayHeight + 2 * margin,
+                        "GA_Reservation Longueur", "Height");
         }
 
-        SetDimensionParam(instance, "Depth", beamDepth > 0 ? beamDepth : 0.5);
+        SetDimParam(instance, beamDepth > 0 ? beamDepth : 0.5,
+                    "GA_Reservation Profondeur", "Depth");
 
         try { InstanceVoidCutUtils.AddInstanceVoidCut(doc, beam, instance); }
         catch { /* family may not be a void-cutting type; skip */ }
+
+        return instance.Id;
     }
 
     // ── Linked reservation ────────────────────────────────────────────────────
 
-    private static void PlaceReservationFamily(
+    private static ElementId? PlaceReservationFamily(
         Document doc, ClashResult clash,
         FamilySymbol symbol, double margin)
     {
         EnsureSymbolActive(doc, symbol);
 
-        var insertPt = clash.IntersectionMidPoint;
-        if (insertPt.IsAlmostEqualTo(XYZ.Zero))
-        {
-            var mep = doc.GetElement(clash.CableTrayId);
-            var bb  = mep?.get_BoundingBox(null);
-            if (bb is null) return;
-            insertPt = GetCenter(bb);
-        }
+        var insertPt = ResolveInsertPoint(doc, clash);
+        if (insertPt is null) return null;
 
-        var instance = doc.Create.NewFamilyInstance(
-            insertPt, symbol, StructuralType.NonStructural);
+        var level    = GetNearestLevel(doc, insertPt.Z);
+        var instance = level is not null
+            ? doc.Create.NewFamilyInstance(insertPt, symbol, level,
+                                           StructuralType.NonStructural)
+            : doc.Create.NewFamilyInstance(insertPt, symbol,
+                                           StructuralType.NonStructural);
 
         if (clash.TrayShape == TrayShape.Circular)
         {
             double d = clash.TrayDiameter + 2 * margin;
-            SetDimensionParam(instance, "Width",  d);
-            SetDimensionParam(instance, "Height", d);
+            SetDimParam(instance, d, "GA_Reservation Largeur",  "Width");
+            SetDimParam(instance, d, "GA_Reservation Longueur", "Height");
         }
         else
         {
-            SetDimensionParam(instance, "Width",  clash.TrayWidth  + 2 * margin);
-            SetDimensionParam(instance, "Height", clash.TrayHeight + 2 * margin);
+            SetDimParam(instance, clash.TrayWidth  + 2 * margin,
+                        "GA_Reservation Largeur",  "Width");
+            SetDimParam(instance, clash.TrayHeight + 2 * margin,
+                        "GA_Reservation Longueur", "Height");
         }
 
-        SetDimensionParam(instance, "Depth", 0.5);
+        // Depth = wall/slab thickness estimated from the intersection; 0.5 ft as safe default
+        SetDimParam(instance, 0.5, "GA_Reservation Profondeur", "Depth");
         SetTextParam(instance, "Comments", $"RESERVATION – linked: {clash.LinkName}");
+
+        return instance.Id;
+    }
+
+    // ── Level helper ──────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Returns the level whose elevation is at or below <paramref name="z"/> (nearest from below).
+    /// Falls back to the lowest level when all levels are above z.
+    /// </summary>
+    private static Level? GetNearestLevel(Document doc, double z)
+    {
+        var levels = new FilteredElementCollector(doc)
+            .OfClass(typeof(Level))
+            .Cast<Level>()
+            .OrderBy(l => l.Elevation)
+            .ToList();
+
+        if (levels.Count == 0) return null;
+
+        return levels.LastOrDefault(l => l.Elevation <= z + 1e-4)
+               ?? levels[0];
     }
 
     // ── Utility helpers ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Resolves the insertion point from the clash, falling back to the MEP element centre.
+    /// </summary>
+    private static XYZ? ResolveInsertPoint(Document doc, ClashResult clash)
+    {
+        var pt = clash.IntersectionMidPoint;
+        if (!pt.IsAlmostEqualTo(XYZ.Zero)) return pt;
+
+        var bb = doc.GetElement(clash.CableTrayId)?.get_BoundingBox(null);
+        return bb is not null ? GetCenter(bb) : null;
+    }
 
     private static void EnsureSymbolActive(Document doc, FamilySymbol sym)
     {
         if (!sym.IsActive)
         {
             sym.Activate();
-            doc.Regenerate(); // required so the activated symbol is usable immediately
+            doc.Regenerate();
         }
     }
 
@@ -330,10 +371,17 @@ public static class VoidPlacer
         ElementTransformUtils.RotateElement(doc, inst.Id, axis, angle);
     }
 
-    private static void SetDimensionParam(FamilyInstance inst, string paramName, double valueFeet)
+    /// <summary>
+    /// Sets a dimension parameter by trying <paramref name="gaName"/> first,
+    /// then <paramref name="fallbackName"/>.
+    /// </summary>
+    private static void SetDimParam(
+        FamilyInstance inst, double valueFeet,
+        string gaName, string fallbackName)
     {
-        var p = inst.LookupParameter(paramName);
-        if (p is not null && !p.IsReadOnly)
+        var p = inst.LookupParameter(gaName)
+             ?? inst.LookupParameter(fallbackName);
+        if (p is not null && !p.IsReadOnly && p.StorageType == StorageType.Double)
             p.Set(valueFeet);
     }
 
@@ -347,8 +395,7 @@ public static class VoidPlacer
     // ── Family loader ─────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Loads a void family from disk and returns its first symbol,
-    /// or null on failure.
+    /// Loads a void family from disk and returns its first symbol, or null on failure.
     /// </summary>
     public static FamilySymbol? LoadFamily(Document doc, string rfaPath)
     {

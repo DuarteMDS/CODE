@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using Autodesk.Revit.DB;
 
 namespace CableTrayVoidCutter.Models;
@@ -31,12 +33,18 @@ public enum MepCategory
 /// Represents a single detected collision between a Cable Tray and a
 /// Wall or Structural Beam (in the host model or a linked model).
 /// </summary>
-public class ClashResult
+public class ClashResult : INotifyPropertyChanged
 {
     // ── MEP source element (always in host document) ──────────────────────────
     public ElementId    CableTrayId       { get; set; } = ElementId.InvalidElementId;
     public string       CableTrayName     { get; set; } = string.Empty;
     public MepCategory  MepCategory       { get; set; } = MepCategory.CableTray;
+
+    /// <summary>
+    /// True when the cable tray belongs to a ladder-tray family
+    /// (detected by family/type name keywords: "ladder", "échelle", "echelon").
+    /// </summary>
+    public bool IsLadderTray { get; set; }
 
     // ── Clashing element ─────────────────────────────────────────────────────
     public ElementId   ClashingElementId   { get; set; } = ElementId.InvalidElementId;
@@ -77,7 +85,12 @@ public class ClashResult
     public XYZ         IntersectionMidPoint { get; set; } = XYZ.Zero;
 
     // ── UI helpers ────────────────────────────────────────────────────────────
-    public bool IsSelected { get; set; } = true;
+    private bool _isSelected = true;
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set { _isSelected = value; OnPropertyChanged(); }
+    }
 
     public string DisplayName =>
         $"{CableTrayName}  ↔  {ClashingElementName}" +
@@ -96,11 +109,16 @@ public class ClashResult
 
     public string MepCategoryDisplay => MepCategory switch
     {
-        MepCategory.CableTray        => "Cable Tray",
+        MepCategory.CableTray        => IsLadderTray ? "Ladder Tray" : "Cable Tray",
         MepCategory.CableTrayFitting => "CT Fitting",
         MepCategory.Conduit          => "Conduit",
         _                            => "MEP"
     };
+
+    // ── INotifyPropertyChanged ────────────────────────────────────────────────
+    public event PropertyChangedEventHandler? PropertyChanged;
+    private void OnPropertyChanged([CallerMemberName] string? name = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
 public enum ClashType

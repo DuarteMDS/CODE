@@ -67,10 +67,17 @@
                    Foreground="#555"
                    FontSize="11"
                    Margin="0,6,0,6">
-            ℹ Void families must contain parameters named <Bold>Width</Bold>,
-            <Bold>Height</Bold>, and <Bold>Depth</Bold> (in feet).
-            The <Bold>Target</Bold> column controls in which combo box the family appears
-            (Wall, Beam or Both).
+            ℹ Les familles doivent contenir les paramètres
+            <Bold>GA_Reservation Largeur</Bold> (largeur),
+            <Bold>GA_Reservation Longueur</Bold> (hauteur) et
+            <Bold>GA_Reservation Profondeur</Bold> (épaisseur traversée) — en pieds.
+            Fallback sur <Bold>Width</Bold> / <Bold>Height</Bold> / <Bold>Depth</Bold> si absents.
+            Colonne <Bold>Target</Bold> :
+            <Bold>CableTray</Bold> = chemins de câbles horizontaux ·
+            <Bold>LadderTray</Bold> = échelles à câbles ·
+            <Bold>Conduit</Bold> = conduits circulaires ·
+            <Bold>Beam</Bold> = poutres structurelles ·
+            <Bold>Both</Bold> = toutes les catégories.
         </TextBlock>
 
         <!-- ── OK / Cancel ─────────────────────────────────────────────────── -->

@@ -89,7 +89,8 @@ public static class ClashDetector
         TrayShape   Shape,
         double      Width,
         double      Height,
-        double      Diameter);
+        double      Diameter,
+        bool        IsLadder = false);
 
     private static List<MepInfo> CollectMepElements(
         Document doc,
@@ -113,7 +114,8 @@ public static class ClashDetector
                 var h = ct.get_Parameter(BuiltInParameter.RBS_CABLETRAY_HEIGHT_PARAM)?.AsDouble()
                      ?? ct.LookupParameter("Height")?.AsDouble()
                      ?? 0;
-                list.Add(new MepInfo(ct, MepCategory.CableTray, TrayShape.Rectangular, w, h, 0));
+                bool isLadder = DetectLadderTray(doc, ct);
+                list.Add(new MepInfo(ct, MepCategory.CableTray, TrayShape.Rectangular, w, h, 0, isLadder));
             }
         }
 
@@ -276,9 +278,36 @@ public static class ClashDetector
         TrayWidth            = info.Width,
         TrayHeight           = info.Height,
         TrayDiameter         = info.Diameter,
+        IsLadderTray         = info.IsLadder,
         IntersectionSolid    = intersectionSolid,
         IntersectionMidPoint = midPt,
     };
+
+    // ── Ladder-tray detection ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// Returns true when the cable tray's family / type name contains keywords
+    /// that indicate a ladder tray (échelle à câbles).
+    /// Detection order: type-name keywords → family-name keywords → aspect-ratio fallback.
+    /// </summary>
+    private static bool DetectLadderTray(Document doc, CableTray ct)
+    {
+        var typeElem = doc.GetElement(ct.GetTypeId()) as ElementType;
+        var familyName = typeElem?.FamilyName ?? string.Empty;
+        var typeName   = typeElem?.Name       ?? ct.Name ?? string.Empty;
+        var combined   = (familyName + " " + typeName).ToLowerInvariant();
+
+        if (combined.Contains("ladder") ||
+            combined.Contains("echel")  ||        // échelle / echelon
+            combined.Contains("câble l") ||
+            combined.Contains("cable l"))
+            return true;
+
+        // Aspect-ratio fallback: if height significantly exceeds width → ladder
+        var w = ct.get_Parameter(BuiltInParameter.RBS_CABLETRAY_WIDTH_PARAM)?.AsDouble() ?? 0;
+        var h = ct.get_Parameter(BuiltInParameter.RBS_CABLETRAY_HEIGHT_PARAM)?.AsDouble() ?? 0;
+        return w > 0 && h > 0 && h > w * 1.5;
+    }
 
     // ── Geometry utilities ────────────────────────────────────────────────────
 
