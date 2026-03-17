@@ -135,11 +135,16 @@ public static class VoidPlacer
             };
         }
 
-        // Try exact match → "Both" / "Wall" fallback → first entry
-        var entry =
-            families.FirstOrDefault(f => f.TargetType == preferredTarget)
-         ?? families.FirstOrDefault(f => f.TargetType is "Both" or "Wall")
-         ?? families[0];
+        // Try exact match first
+        var entry = families.FirstOrDefault(f => f.TargetType == preferredTarget);
+
+        // LadderTray with no dedicated entry → fall back to CableTray (e.g. CEG_Resa Wall Rectangular)
+        if (entry is null && preferredTarget == "LadderTray")
+            entry = families.FirstOrDefault(f => f.TargetType == "CableTray");
+
+        // Generic fallback → "Both" / "Wall" (legacy) → first entry
+        entry ??= families.FirstOrDefault(f => f.TargetType is "Both" or "Wall")
+               ?? families[0];
 
         return entry.FilePath is not null &&
                symbolCache.TryGetValue(entry.FilePath, out var sym)
@@ -229,7 +234,7 @@ public static class VoidPlacer
         double depth = beamBb is not null ? Math.Abs(beamBb.Max.Y - beamBb.Min.Y) : 0.5;
 
         SetMepDimensions(instance, clash, margin);
-        SetDim(instance, depth, "GA_Reservation Profondeur", "Depth");
+        SetDim(instance, depth, "GA_Reservation Profondeur", "Profondeur", "Epaisseur", "Épaisseur", "Depth");
 
         try { InstanceVoidCutUtils.AddInstanceVoidCut(doc, beam, instance); } catch { }
 
@@ -294,7 +299,7 @@ public static class VoidPlacer
 
         // Depth = actual structural thickness
         double depth = GetStructuralDepth(structElem, clash.ClashType, clash.LinkTransform);
-        SetDim(instance, depth, "GA_Reservation Profondeur", "Depth");
+        SetDim(instance, depth, "GA_Reservation Profondeur", "Profondeur", "Epaisseur", "Épaisseur", "Depth");
 
         SetText(instance, "Comments", $"RESERVATION – lien: {clash.LinkName}");
 
@@ -482,21 +487,36 @@ public static class VoidPlacer
         if (clash.TrayShape == TrayShape.Circular)
         {
             double d = clash.TrayDiameter + 2 * margin;
-            SetDim(inst, d, "GA_Reservation Largeur",  "Width");
-            SetDim(inst, d, "GA_Reservation Longueur", "Height");
+            // Circle families: try diameter param first, then width/height equivalents
+            SetDim(inst, d,
+                "GA_Reservation Largeur", "Largeur",
+                "Diametre", "Diamètre", "Diameter",
+                "Width");
+            SetDim(inst, d,
+                "GA_Reservation Longueur", "Longueur",
+                "Diametre", "Diamètre", "Diameter",
+                "Height");
         }
         else
         {
-            SetDim(inst, clash.TrayWidth  + 2 * margin, "GA_Reservation Largeur",  "Width");
-            SetDim(inst, clash.TrayHeight + 2 * margin, "GA_Reservation Longueur", "Height");
+            SetDim(inst, clash.TrayWidth  + 2 * margin,
+                "GA_Reservation Largeur", "Largeur", "Width");
+            SetDim(inst, clash.TrayHeight + 2 * margin,
+                "GA_Reservation Longueur", "Longueur", "Height");
         }
     }
 
-    private static void SetDim(FamilyInstance inst, double v, string ga, string fallback)
+    private static void SetDim(FamilyInstance inst, double v, params string[] names)
     {
-        var p = inst.LookupParameter(ga) ?? inst.LookupParameter(fallback);
-        if (p is not null && !p.IsReadOnly && p.StorageType == StorageType.Double)
-            p.Set(v);
+        foreach (var name in names)
+        {
+            var p = inst.LookupParameter(name);
+            if (p is not null && !p.IsReadOnly && p.StorageType == StorageType.Double)
+            {
+                p.Set(v);
+                return;
+            }
+        }
     }
 
     private static void SetText(FamilyInstance inst, string name, string value)

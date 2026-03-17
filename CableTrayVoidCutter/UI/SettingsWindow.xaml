@@ -67,14 +67,17 @@
                    Foreground="#555"
                    FontSize="11"
                    Margin="0,6,0,6">
-            ℹ Les familles doivent contenir les paramètres
-            <Bold>GA_Reservation Largeur</Bold> (largeur),
-            <Bold>GA_Reservation Longueur</Bold> (hauteur) et
-            <Bold>GA_Reservation Profondeur</Bold> (épaisseur traversée) — en pieds.
-            Fallback sur <Bold>Width</Bold> / <Bold>Height</Bold> / <Bold>Depth</Bold> si absents.
+            ℹ Familles CEG supportées : <Bold>CEG_Resa Wall Circle</Bold> (→ Conduit) et
+            <Bold>CEG_Resa Wall Rectangular</Bold> (→ CableTray + LadderTray).
+            Le type cible est auto-détecté depuis le nom du fichier.
+            Paramètres reconnus (par ordre de priorité) :
+            largeur → <Bold>GA_Reservation Largeur</Bold> / <Bold>Largeur</Bold> / <Bold>Width</Bold> ;
+            hauteur → <Bold>GA_Reservation Longueur</Bold> / <Bold>Longueur</Bold> / <Bold>Height</Bold> ;
+            épaisseur → <Bold>GA_Reservation Profondeur</Bold> / <Bold>Profondeur</Bold> / <Bold>Epaisseur</Bold> / <Bold>Depth</Bold> ;
+            diamètre → <Bold>Diametre</Bold> / <Bold>Diamètre</Bold> / <Bold>Diameter</Bold>.
             Colonne <Bold>Target</Bold> :
-            <Bold>CableTray</Bold> = chemins de câbles horizontaux ·
-            <Bold>LadderTray</Bold> = échelles à câbles ·
+            <Bold>CableTray</Bold> = chemins de câbles (rectangulaires + échelles en fallback) ·
+            <Bold>LadderTray</Bold> = échelles à câbles dédiées ·
             <Bold>Conduit</Bold> = conduits circulaires ·
             <Bold>Beam</Bold> = poutres structurelles ·
             <Bold>Both</Bold> = toutes les catégories.

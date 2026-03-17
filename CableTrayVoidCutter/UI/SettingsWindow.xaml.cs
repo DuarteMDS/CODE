@@ -39,11 +39,12 @@ public partial class SettingsWindow : Window
             // Avoid duplicates
             if (_settings.VoidFamilies.Any(f => f.FilePath == path)) continue;
 
+            var familyName = System.IO.Path.GetFileNameWithoutExtension(path);
             var entry = new VoidFamilyEntry
             {
-                Name       = System.IO.Path.GetFileNameWithoutExtension(path),
+                Name       = familyName,
                 FilePath   = path,
-                TargetType = "Both"
+                TargetType = DetectTargetType(familyName)
             };
 
             _settings.VoidFamilies.Add(entry);
@@ -85,5 +86,33 @@ public partial class SettingsWindow : Window
     {
         DialogResult = false;
         Close();
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Infers the best TargetType from a family filename.
+    /// CEG_Resa Wall Circle    → "Conduit"
+    /// CEG_Resa Wall Rectangular → "CableTray"
+    /// Other names with "conduit" / "circle" / "rond" → "Conduit"
+    /// Other names with "rect" / "rectangular" / "cable" / "ladder" → "CableTray"
+    /// </summary>
+    private static string DetectTargetType(string name)
+    {
+        var n = name.ToLowerInvariant();
+
+        if (n.Contains("circle") || n.Contains("rond") || n.Contains("circular") || n.Contains("conduit"))
+            return "Conduit";
+
+        if (n.Contains("rectangular") || n.Contains("rectangulaire") || n.Contains("rect"))
+            return "CableTray";
+
+        if (n.Contains("ladder") || n.Contains("echelle") || n.Contains("échelle"))
+            return "LadderTray";
+
+        if (n.Contains("beam") || n.Contains("poutre"))
+            return "Beam";
+
+        return "Both";
     }
 }
