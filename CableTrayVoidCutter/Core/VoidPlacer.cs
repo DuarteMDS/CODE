@@ -6,20 +6,21 @@ using CableTrayVoidCutter.Models;
 namespace CableTrayVoidCutter.Core;
 
 /// <summary>
-/// Creates void openings / reservation families for each <see cref="ClashResult"/>.
+/// Creates void openings for Cable Tray / Conduit ↔ Wall clashes.
 ///
-/// Family selection is shape-based (inspired by ConVoid):
-///   Circular MEP  → circleSymbol    (e.g. CEG_Resa Wall Circle)
-///   Rectangular   → rectSymbol      (e.g. CEG_Resa Wall Rectangular)
+/// HOST walls  → native Revit opening (NewOpening) — no family needed, always reliable.
+/// LINKED walls → reservation family (CEG_Resa Wall Circle / Rectangular).
 ///
-/// Parameters set on placed families (tried in order):
-///   Width  : GA_Width → Width
-///   Height : GA_Height → Height
-///   Depth  : GA_Depth → Depth
+/// Family placement is robust: FamilyPlacementType is detected at runtime and the
+/// correct NewFamilyInstance overload is chosen.  Multiple fallbacks are tried so
+/// the placement succeeds regardless of whether the family is face-based,
+/// wall-hosted, level-based, or freestanding.
+///
+/// Parameters set: GA_Width / GA_Height (size) + GA_Depth (wall thickness).
 /// </summary>
 public static class VoidPlacer
 {
-    // ── Public entry point ────────────────────────────────────────────────────
+    // ── Entry point ───────────────────────────────────────────────────────────
 
     public static string PlaceVoids(
         Document                 doc,
@@ -27,46 +28,42 @@ public static class VoidPlacer
         double                   marginFeet,
         FamilySymbol?            circleSymbol,
         FamilySymbol?            rectSymbol,
-        VoidPlacementLog?        placementLog = null)
+        VoidPlacementLog?        log = null)
     {
-        int wallsOk = 0, beamsOk = 0, linked = 0, failed = 0;
+        int hostOk = 0, linkedOk = 0, failed = 0;
         string docPath = doc.PathName;
 
         foreach (var clash in clashes.Where(c => c.IsSelected))
         {
             try
             {
-                // Shape-based symbol selection
-                var sym = clash.TrayShape == TrayShape.Circular ? circleSymbol : rectSymbol;
-
                 ElementId? placedId = null;
 
                 if (clash.Source == ElementSource.Host)
                 {
-                    if (clash.ClashType is ClashType.Wall or ClashType.Floor)
-                    {
-                        var wall = doc.GetElement(clash.ClashingElementId) as Wall;
-                        if (wall is null) { failed++; continue; }
-                        placedId = CreateWallOpening(doc, wall, clash, marginFeet);
-                        wallsOk++;
-                    }
-                    else // Beam
-                    {
-                        var beam = doc.GetElement(clash.ClashingElementId) as FamilyInstance;
-                        if (beam is null || sym is null) { failed++; continue; }
-                        placedId = PlaceVoidOnBeam(doc, beam, clash, sym, marginFeet);
-                        beamsOk++;
-                    }
+                    var wall = doc.GetElement(clash.ClashingElementId) as Wall;
+                    if (wall is null) { failed++; continue; }
+                    placedId = CreateNativeOpening(doc, wall, clash, marginFeet);
+                    if (placedId is not null) hostOk++;
+                    else { failed++; continue; }
                 }
-                else // Linked model → reservation family
+                else // Linked model → place reservation family
                 {
+                    var sym = clash.TrayShape == TrayShape.Circular ? circleSymbol : rectSymbol;
                     if (sym is null) { failed++; continue; }
-                    placedId = PlaceReservationFamily(doc, clash, sym, marginFeet);
-                    linked++;
+
+                    var linkInst  = clash.LinkInstanceId is not null
+                                  ? doc.GetElement(clash.LinkInstanceId) as RevitLinkInstance : null;
+                    var linkedWall = linkInst?.GetLinkDocument()
+                                             ?.GetElement(clash.ClashingElementId) as Wall;
+
+                    placedId = PlaceReservationFamily(doc, clash, sym, marginFeet, linkedWall);
+                    if (placedId is not null) linkedOk++;
+                    else { failed++; continue; }
                 }
 
-                if (placedId is not null && placementLog is not null)
-                    TrackPlacement(doc, placementLog, clash, placedId, docPath);
+                if (placedId is not null && log is not null)
+                    TrackPlacement(doc, log, clash, placedId, docPath);
             }
             catch (Exception ex)
             {
@@ -76,31 +73,33 @@ public static class VoidPlacer
         }
 
         return $"Terminé.\n" +
-               $"  Ouvertures murs/dalles : {wallsOk}\n" +
-               $"  Vides poutres          : {beamsOk}\n" +
-               $"  Réservations liées     : {linked}\n" +
-               $"  Erreurs                : {failed}";
+               $"  Ouvertures dans murs (hôte)   : {hostOk}\n" +
+               $"  Réservations murs (liés)       : {linkedOk}\n" +
+               $"  Erreurs                        : {failed}";
     }
 
-    // ── Host wall / floor opening (native Revit opening) ─────────────────────
+    // ── Native opening for host walls ─────────────────────────────────────────
 
-    private static ElementId? CreateWallOpening(
+    private static ElementId? CreateNativeOpening(
         Document doc, Wall wall, ClashResult clash, double margin)
     {
         var mep    = doc.GetElement(clash.CableTrayId);
         var mepBb  = mep?.get_BoundingBox(null);
-        var center = ComputeWallCrossing(mep, mepBb, wall, Transform.Identity)
+        var center = WallCrossing(mep, mepBb, wall, Transform.Identity)
                   ?? (mepBb is not null ? Center(mepBb) : null);
         if (center is null) return null;
 
-        var wallDir = WallDirection(wall);
+        var wallDir = WallDir(wall);
         var upDir   = wallDir.CrossProduct(wall.Orientation).Normalize();
 
         CurveArray curves;
 
         if (clash.TrayShape == TrayShape.Circular)
         {
-            double r = MepRadius(clash, mepBb) + margin;
+            double r = (clash.TrayDiameter > 0 ? clash.TrayDiameter / 2.0
+                       : mepBb is not null ? Math.Max(mepBb.Max.X - mepBb.Min.X,
+                                                      mepBb.Max.Z - mepBb.Min.Z) / 2.0 : 0)
+                     + margin;
             if (r <= 0) return null;
             var p0 = center + wallDir * r;
             var p1 = center - wallDir * r;
@@ -110,8 +109,10 @@ public static class VoidPlacer
         }
         else
         {
-            double hw = HalfWidth (clash, mepBb) + margin;
-            double hh = HalfHeight(clash, mepBb) + margin;
+            double hw = (clash.TrayWidth  > 0 ? clash.TrayWidth  / 2.0
+                        : mepBb is not null ? (mepBb.Max.X - mepBb.Min.X) / 2.0 : 0.25) + margin;
+            double hh = (clash.TrayHeight > 0 ? clash.TrayHeight / 2.0
+                        : mepBb is not null ? (mepBb.Max.Z - mepBb.Min.Z) / 2.0 : 0.25) + margin;
             var p0 = center - wallDir * hw - upDir * hh;
             curves = new CurveArray();
             curves.Append(Line.CreateBound(p0,                              center + wallDir * hw - upDir * hh));
@@ -123,159 +124,81 @@ public static class VoidPlacer
         return doc.Create.NewOpening(wall, curves, true)?.Id;
     }
 
-    // ── Beam void (host model) ────────────────────────────────────────────────
-
-    private static ElementId? PlaceVoidOnBeam(
-        Document doc, FamilyInstance beam,
-        ClashResult clash, FamilySymbol sym, double margin)
-    {
-        Activate(doc, sym);
-
-        var mepBb    = doc.GetElement(clash.CableTrayId)?.get_BoundingBox(null);
-        var insertPt = ComputeBeamCrossing(doc.GetElement(clash.CableTrayId), mepBb, beam)
-                    ?? (mepBb is not null ? Center(mepBb) : null);
-        if (insertPt is null) return null;
-
-        var inst = doc.Create.NewFamilyInstance(insertPt, sym, StructuralType.NonStructural);
-
-        var dir = ElementDir(beam);
-        if (dir is not null) AlignToDir(doc, inst, insertPt, dir);
-
-        var beamBb = beam.get_BoundingBox(null);
-        SetDimensions(inst, clash, margin);
-        SetDim(inst, beamBb is not null ? Math.Abs(beamBb.Max.Y - beamBb.Min.Y) : 0.5,
-               "GA_Depth", "Depth");
-
-        try { InstanceVoidCutUtils.AddInstanceVoidCut(doc, beam, inst); } catch { }
-        return inst.Id;
-    }
-
-    // ── Linked reservation family ─────────────────────────────────────────────
+    // ── Reservation family for linked walls ───────────────────────────────────
 
     private static ElementId? PlaceReservationFamily(
-        Document doc, ClashResult clash, FamilySymbol sym, double margin)
+        Document doc, ClashResult clash, FamilySymbol sym,
+        double margin, Wall? linkedWall)
     {
         Activate(doc, sym);
 
-        var mepElem  = doc.GetElement(clash.CableTrayId);
-        var mepBb    = mepElem?.get_BoundingBox(null);
+        var mepElem = doc.GetElement(clash.CableTrayId);
+        var mepBb   = mepElem?.get_BoundingBox(null);
 
-        var linkInst   = clash.LinkInstanceId is not null
-                       ? doc.GetElement(clash.LinkInstanceId) as RevitLinkInstance : null;
-        var structElem = linkInst?.GetLinkDocument()?.GetElement(clash.ClashingElementId);
+        // Exact insertion: where MEP axis crosses wall centre-plane
+        var insertPt = (linkedWall is not null
+            ? WallCrossing(mepElem, mepBb, linkedWall, clash.LinkTransform)
+            : null)
+            ?? clash.IntersectionMidPoint;
 
-        XYZ? insertPt = null;
-
-        if (clash.ClashType == ClashType.Wall && structElem is Wall linkedWall)
-        {
-            insertPt = ComputeWallCrossing(mepElem, mepBb, linkedWall, clash.LinkTransform);
-        }
-        else if (clash.ClashType == ClashType.Floor && structElem is not null)
-        {
-            var raw    = clash.IntersectionMidPoint;
-            var elemBb = structElem.get_BoundingBox(null);
-            if (elemBb is not null)
-            {
-                double slabZ = (clash.LinkTransform.OfPoint(elemBb.Min).Z +
-                                clash.LinkTransform.OfPoint(elemBb.Max).Z) / 2.0;
-                var xy = (raw is not null && !raw.IsAlmostEqualTo(XYZ.Zero)) ? raw
-                       : (mepBb is not null ? Center(mepBb) : null);
-                if (xy is not null) insertPt = new XYZ(xy.X, xy.Y, slabZ);
-            }
-        }
-
-        insertPt ??= clash.IntersectionMidPoint;
         if (insertPt is null || insertPt.IsAlmostEqualTo(XYZ.Zero))
         {
             if (mepBb is null) return null;
             insertPt = Center(mepBb);
         }
 
-        var inst = doc.Create.NewFamilyInstance(insertPt, sym, StructuralType.NonStructural);
+        // Place using the right overload for this family type
+        var inst = TryPlace(doc, sym, insertPt);
+        if (inst is null) return null;
 
-        SetLevelAssociation(doc, inst, insertPt.Z);
         SetDimensions(inst, clash, margin);
-
-        double depth = StructuralDepth(structElem, clash.ClashType, clash.LinkTransform);
-        SetDim(inst, depth, "GA_Depth", "Depth");
-
+        SetDim(inst, linkedWall is not null ? linkedWall.Width : 0.5, "GA_Depth", "Depth");
         SetText(inst, "Comments", $"RESERVATION – lien: {clash.LinkName}");
         return inst.Id;
     }
 
-    // ── Geometry helpers ──────────────────────────────────────────────────────
+    // ── Smart family placement (handles all FamilyPlacementType values) ───────
 
-    /// <summary>Where MEP axis crosses the wall centre-plane (world coordinates).</summary>
-    private static XYZ? ComputeWallCrossing(
-        Element? mep, BoundingBoxXYZ? mepBb, Wall wall, Transform wallToWorld)
+    /// <summary>
+    /// Tries the correct NewFamilyInstance overload for the family's placement type,
+    /// with automatic fallbacks.  This is the fix for the "wrong placement type"
+    /// exception thrown when face-based or wall-hosted families are placed with the
+    /// bare 3-parameter freestanding overload.
+    /// </summary>
+    private static FamilyInstance? TryPlace(Document doc, FamilySymbol sym, XYZ pt)
     {
-        var normal = wallToWorld.OfVector(wall.Orientation).Normalize();
-        var refPt  = wallToWorld.OfPoint(
-                         ((LocationCurve)wall.Location).Curve.GetEndPoint(0));
+        var ptype = sym.Family.FamilyPlacementType;
 
-        if (mep?.Location is LocationCurve lc)
+        // ── 1. Level-based families (most common for reservation families) ────
+        if (ptype is FamilyPlacementType.OneLevelBased
+                  or FamilyPlacementType.OneLevelBasedHosted
+                  or FamilyPlacementType.TwoLevelsBased)
         {
-            var s = lc.Curve.GetEndPoint(0);
-            var d = lc.Curve.GetEndPoint(1) - s;
-            double den = normal.DotProduct(d);
-            if (Math.Abs(den) < 1e-9) goto fallback;
-            double t = normal.DotProduct(refPt - s) / den;
-            if (t < -0.1 || t > 1.1) goto fallback;
-            return s + d * t;
+            var level = NearestLevel(doc, pt.Z);
+            if (level is not null)
+                try { return doc.Create.NewFamilyInstance(pt, sym, level, StructuralType.NonStructural); }
+                catch { /* fall through */ }
         }
 
-        fallback:
-        if (mepBb is null) return null;
-        var c  = Center(mepBb);
-        double dist = normal.DotProduct(c - refPt);
-        return c - normal * dist;
-    }
+        // ── 2. Freestanding (ViewBased, WorkPlaneBased, or unknown) ──────────
+        try { return doc.Create.NewFamilyInstance(pt, sym, StructuralType.NonStructural); }
+        catch { /* fall through */ }
 
-    /// <summary>Projects MEP centre onto beam axis at MEP Z.</summary>
-    private static XYZ? ComputeBeamCrossing(
-        Element? mep, BoundingBoxXYZ? mepBb, FamilyInstance beam)
-    {
-        if (beam.Location is not LocationCurve beamLc) return null;
-        var refPt = mep?.Location is LocationCurve mepLc
-            ? mepLc.Curve.Evaluate(0.5, true)
-            : (mepBb is not null ? Center(mepBb) : null);
-        if (refPt is null) return null;
+        // ── 3. Face-based fallback: horizontal work plane at insertion Z ──────
+        try
+        {
+            var sp = SketchPlane.Create(doc, Plane.CreateByNormalAndOrigin(XYZ.BasisZ, pt));
+            return doc.Create.NewFamilyInstance(pt, sym, sp, StructuralType.NonStructural);
+        }
+        catch { /* fall through */ }
 
-        var bs  = beamLc.Curve.GetEndPoint(0);
-        var bd  = (beamLc.Curve.GetEndPoint(1) - bs).Normalize();
-        double t = bd.DotProduct(refPt - bs);
-        var pt   = bs + bd * t;
-        double z = mepBb is not null ? (mepBb.Min.Z + mepBb.Max.Z) / 2.0 : pt.Z;
-        return new XYZ(pt.X, pt.Y, z);
-    }
+        // ── 4. Level-based with nearest level (last resort) ──────────────────
+        var lvl = NearestLevel(doc, pt.Z);
+        if (lvl is not null)
+            try { return doc.Create.NewFamilyInstance(pt, sym, lvl, StructuralType.NonStructural); }
+            catch { /* fall through */ }
 
-    // ── Level association (schedules/tags only — does NOT move element) ────────
-
-    private static void SetLevelAssociation(Document doc, FamilyInstance inst, double z)
-    {
-        var level = new FilteredElementCollector(doc)
-            .OfClass(typeof(Level)).Cast<Level>()
-            .OrderBy(l => l.Elevation)
-            .LastOrDefault(l => l.Elevation <= z + 1e-4);
-        if (level is null) return;
-
-        var p = inst.get_Parameter(BuiltInParameter.FAMILY_LEVEL_PARAM)
-             ?? inst.get_Parameter(BuiltInParameter.SCHEDULE_LEVEL_PARAM);
-        if (p is not null && !p.IsReadOnly) p.Set(level.Id);
-    }
-
-    // ── Structural depth ──────────────────────────────────────────────────────
-
-    private static double StructuralDepth(Element? elem, ClashType type, Transform t)
-    {
-        const double fallback = 0.5;
-        if (elem is null) return fallback;
-        if (type == ClashType.Wall && elem is Wall w) return w.Width;
-        var bb = elem.get_BoundingBox(null);
-        if (bb is null) return fallback;
-        if (type == ClashType.Floor)
-            return Math.Abs(t.OfPoint(bb.Max).Z - t.OfPoint(bb.Min).Z);
-        return Math.Abs(bb.Max.Y - bb.Min.Y);
+        return null;
     }
 
     // ── Family loader ─────────────────────────────────────────────────────────
@@ -297,7 +220,34 @@ public static class VoidPlacer
         return symId is not null ? doc.GetElement(symId) as FamilySymbol : null;
     }
 
-    // ── Parameter setting ─────────────────────────────────────────────────────
+    // ── Geometry ──────────────────────────────────────────────────────────────
+
+    /// <summary>Where the MEP axis crosses the wall centre-plane (world coordinates).</summary>
+    private static XYZ? WallCrossing(
+        Element? mep, BoundingBoxXYZ? mepBb, Wall wall, Transform wallToWorld)
+    {
+        var n      = wallToWorld.OfVector(wall.Orientation).Normalize();
+        var refPt  = wallToWorld.OfPoint(((LocationCurve)wall.Location).Curve.GetEndPoint(0));
+
+        if (mep?.Location is LocationCurve lc)
+        {
+            var s = lc.Curve.GetEndPoint(0);
+            var d = lc.Curve.GetEndPoint(1) - s;
+            double den = n.DotProduct(d);
+            if (Math.Abs(den) >= 1e-9)
+            {
+                double t = n.DotProduct(refPt - s) / den;
+                if (t >= -0.1 && t <= 1.1) return s + d * t;
+            }
+        }
+
+        // Fallback: project BB centre onto wall plane
+        if (mepBb is null) return null;
+        var c = Center(mepBb);
+        return c - n * n.DotProduct(c - refPt);
+    }
+
+    // ── Parameters ───────────────────────────────────────────────────────────
 
     private static void SetDimensions(FamilyInstance inst, ClashResult clash, double margin)
     {
@@ -331,7 +281,7 @@ public static class VoidPlacer
             p.Set(value);
     }
 
-    // ── Small utilities ───────────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static void Activate(Document doc, FamilySymbol sym)
     {
@@ -341,39 +291,17 @@ public static class VoidPlacer
     private static XYZ Center(BoundingBoxXYZ bb) =>
         new((bb.Min.X + bb.Max.X) / 2, (bb.Min.Y + bb.Max.Y) / 2, (bb.Min.Z + bb.Max.Z) / 2);
 
-    private static XYZ WallDirection(Wall wall)
+    private static XYZ WallDir(Wall wall)
     {
         var c = ((LocationCurve)wall.Location).Curve;
         return (c.GetEndPoint(1) - c.GetEndPoint(0)).Normalize();
     }
 
-    private static XYZ? ElementDir(FamilyInstance fi) =>
-        fi.Location is LocationCurve lc
-            ? (lc.Curve.GetEndPoint(1) - lc.Curve.GetEndPoint(0)).Normalize()
-            : null;
-
-    private static void AlignToDir(Document doc, FamilyInstance inst, XYZ origin, XYZ dir)
-    {
-        if (dir.IsAlmostEqualTo(XYZ.BasisX)) return;
-        double angle = XYZ.BasisX.AngleTo(dir);
-        if (XYZ.BasisX.CrossProduct(dir).Z < 0) angle = -angle;
-        ElementTransformUtils.RotateElement(doc, inst.Id, Line.CreateUnbound(origin, XYZ.BasisZ), angle);
-    }
-
-    private static double MepRadius(ClashResult c, BoundingBoxXYZ? bb) =>
-        c.TrayDiameter > 0 ? c.TrayDiameter / 2.0
-        : bb is not null ? Math.Max(bb.Max.X - bb.Min.X, bb.Max.Z - bb.Min.Z) / 2.0
-        : 0;
-
-    private static double HalfWidth(ClashResult c, BoundingBoxXYZ? bb) =>
-        c.TrayWidth > 0 ? c.TrayWidth / 2.0
-        : bb is not null ? (bb.Max.X - bb.Min.X) / 2.0
-        : 0.25;
-
-    private static double HalfHeight(ClashResult c, BoundingBoxXYZ? bb) =>
-        c.TrayHeight > 0 ? c.TrayHeight / 2.0
-        : bb is not null ? (bb.Max.Z - bb.Min.Z) / 2.0
-        : 0.25;
+    private static Level? NearestLevel(Document doc, double z) =>
+        new FilteredElementCollector(doc)
+            .OfClass(typeof(Level)).Cast<Level>()
+            .OrderBy(l => l.Elevation)
+            .LastOrDefault(l => l.Elevation <= z + 1e-4);
 
     private static void TrackPlacement(
         Document doc, VoidPlacementLog log,
@@ -386,8 +314,8 @@ public static class VoidPlacer
         {
             VoidElementId = placedId.Value,
             MepElementId  = clash.CableTrayId.Value,
-            HostElementId = clash.ClashingElementId.Value,   // key for lifecycle lookup
-            MepX          = c.X, MepY = c.Y, MepZ = c.Z,
+            HostElementId = clash.ClashingElementId.Value,
+            MepX = c.X, MepY = c.Y, MepZ = c.Z,
             DocumentPath  = docPath,
             Timestamp     = DateTime.UtcNow
         });

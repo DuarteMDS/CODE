@@ -104,13 +104,11 @@
                 <CheckBox Content="Chemins de câbles"
                           IsChecked="{Binding ScanCableTrays}"
                           VerticalAlignment="Center" Margin="0,0,16,0"
-                          ToolTip="Détection auto. chemin de câbles / échelle à câbles"/>
-                <CheckBox Content="Raccords CT"
-                          IsChecked="{Binding ScanCableTrayFittings}"
-                          VerticalAlignment="Center" Margin="0,0,16,0"/>
+                          ToolTip="Chemins de câbles + échelles à câbles (détection auto)"/>
                 <CheckBox Content="Conduits"
                           IsChecked="{Binding ScanConduits}"
-                          VerticalAlignment="Center"/>
+                          VerticalAlignment="Center"
+                          ToolTip="Conduits circulaires → famille CEG_Resa Wall Circle"/>
                 <Separator Width="1" Margin="14,2"/>
                 <TextBlock Text="Murs :" VerticalAlignment="Center"
                            FontWeight="SemiBold" Margin="8,0,8,0"/>
@@ -223,11 +221,6 @@
                         <DataGridTextColumn Header="Section"
                                             Binding="{Binding TrayShapeDisplay}"
                                             Width="115" IsReadOnly="True"/>
-
-                        <!-- ── Clash type ── -->
-                        <DataGridTextColumn Header="Type"
-                                            Binding="{Binding ClashTypeDisplay}"
-                                            Width="55" IsReadOnly="True"/>
 
                         <!-- ── Clashing element ── -->
                         <DataGridTextColumn Header="Élément en conflit"

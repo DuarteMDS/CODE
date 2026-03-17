@@ -6,8 +6,8 @@ namespace CableTrayVoidCutter.Models;
 
 public enum ElementSource { Host, Linked }
 public enum TrayShape     { Rectangular, Circular }
-public enum MepCategory   { CableTray, CableTrayFitting, Conduit }
-public enum ClashType     { Wall, Beam, Floor }
+public enum MepCategory   { CableTray, Conduit }
+public enum ClashType     { Wall }
 
 /// <summary>
 /// Lifecycle status of the opening for a given clash — updated after detection
@@ -94,24 +94,15 @@ public class ClashResult : INotifyPropertyChanged
         $"{CableTrayName}  ↔  {ClashingElementName}" +
         (Source == ElementSource.Linked ? $"  [{LinkName}]" : "  [Host]");
 
-    public string ClashTypeDisplay => ClashType switch
-    {
-        ClashType.Wall  => "Mur",
-        ClashType.Beam  => "Poutre",
-        ClashType.Floor => "Dalle",
-        _               => "?"
-    };
-
     public string TrayShapeDisplay => TrayShape == TrayShape.Circular
         ? $"⬤ Ø{TrayDiameter * 304.8:F0} mm"
         : $"▬ {TrayWidth * 304.8:F0}×{TrayHeight * 304.8:F0} mm";
 
     public string MepCategoryDisplay => MepCategory switch
     {
-        MepCategory.CableTray        => IsLadderTray ? "Échelle câbles" : "Chemin câbles",
-        MepCategory.CableTrayFitting => "Raccord CT",
-        MepCategory.Conduit          => "Conduit",
-        _                            => "MEP"
+        MepCategory.CableTray   => IsLadderTray ? "Échelle câbles" : "Chemin câbles",
+        MepCategory.Conduit     => "Conduit",
+        _                       => "MEP"
     };
 
     public event PropertyChangedEventHandler? PropertyChanged;

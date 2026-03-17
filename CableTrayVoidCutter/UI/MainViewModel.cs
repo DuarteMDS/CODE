@@ -29,11 +29,10 @@ public class MainViewModel : INotifyPropertyChanged
         _settings     = settings;
         _placementLog = VoidPlacementLog.Load();
 
-        MarginMm              = settings.MarginMm;
-        ScanCableTrays        = settings.ScanCableTrays;
-        ScanCableTrayFittings = settings.ScanCableTrayFittings;
-        ScanConduits          = settings.ScanConduits;
-        _wallOrientation      = settings.WallOrientation;
+        MarginMm         = settings.MarginMm;
+        ScanCableTrays   = settings.ScanCableTrays;
+        ScanConduits     = settings.ScanConduits;
+        _wallOrientation = settings.WallOrientation;
 
         DetectClashesCommand    = new RelayCommand(DetectClashes);
         ApplyCommand            = new RelayCommand(Apply,
@@ -63,14 +62,6 @@ public class MainViewModel : INotifyPropertyChanged
         get => _scanCableTrays;
         set { _scanCableTrays = value; OnPropertyChanged();
               _settings.ScanCableTrays = value; _settings.Save(); }
-    }
-
-    private bool _scanCableTrayFittings;
-    public bool ScanCableTrayFittings
-    {
-        get => _scanCableTrayFittings;
-        set { _scanCableTrayFittings = value; OnPropertyChanged();
-              _settings.ScanCableTrayFittings = value; _settings.Save(); }
     }
 
     private bool _scanConduits;
@@ -150,7 +141,7 @@ public class MainViewModel : INotifyPropertyChanged
             _settings.Save();
 
             var results = ClashDetector.Detect(_doc, MarginMm / 304.8,
-                ScanCableTrays, ScanCableTrayFittings, ScanConduits, _wallOrientation);
+                ScanCableTrays, ScanConduits, _wallOrientation);
 
             foreach (var r in results)
                 ClashResults.Add(r);

@@ -25,9 +25,8 @@ public class AppSettings
 
     // ── MEP scan filters ──────────────────────────────────────────────────────
 
-    public bool ScanCableTrays        { get; set; } = true;
-    public bool ScanCableTrayFittings { get; set; } = true;
-    public bool ScanConduits          { get; set; } = true;
+    public bool ScanCableTrays { get; set; } = true;
+    public bool ScanConduits   { get; set; } = true;
 
     public WallOrientationFilter WallOrientation { get; set; } = WallOrientationFilter.Vertical;
 
