@@ -12,8 +12,6 @@ namespace CableTrayVoidCutter.UI;
 
 /// <summary>
 /// ViewModel for <see cref="MainWindow"/>.
-/// Drives clash detection, void placement, settings persistence, in-Revit selection,
-/// and alignment checking for previously inserted voids.
 /// </summary>
 public class MainViewModel : INotifyPropertyChanged
 {
@@ -39,29 +37,20 @@ public class MainViewModel : INotifyPropertyChanged
 
         RefreshFamilyLists();
 
-        SelectedCableTrayFamily  = CableTrayFamilies.FirstOrDefault(
-            f => f.FilePath == settings.LastCableTrayFamilyPath);
-        SelectedLadderTrayFamily = LadderTrayFamilies.FirstOrDefault(
-            f => f.FilePath == settings.LastLadderTrayFamilyPath);
-        SelectedConduitFamily    = ConduitFamilies.FirstOrDefault(
-            f => f.FilePath == settings.LastConduitFamilyPath);
-        SelectedBeamFamily       = BeamFamilies.FirstOrDefault(
-            f => f.FilePath == settings.LastBeamFamilyPath);
-
-        DetectClashesCommand  = new RelayCommand(DetectClashes);
-        ApplyCommand          = new RelayCommand(Apply,
-                                    () => ClashResults.Any(c => c.IsSelected));
-        SelectAllCommand      = new RelayCommand(SelectAll,
-                                    () => ClashResults.Count > 0);
-        DeselectAllCommand    = new RelayCommand(DeselectAll,
-                                    () => ClashResults.Count > 0);
-        OpenSettingsCommand   = new RelayCommand(OpenSettings);
-        ShowInRevitCommand    = new RelayCommand<ClashResult>(ShowInRevit);
-        CheckAlignmentCommand = new RelayCommand(CheckAlignment);
+        DetectClashesCommand    = new RelayCommand(DetectClashes);
+        ApplyCommand            = new RelayCommand(Apply,
+                                      () => ClashResults.Any(c => c.IsSelected));
+        SelectAllCommand        = new RelayCommand(SelectAll,
+                                      () => ClashResults.Count > 0);
+        DeselectAllCommand      = new RelayCommand(DeselectAll,
+                                      () => ClashResults.Count > 0);
+        OpenSettingsCommand     = new RelayCommand(OpenSettings);
+        ShowInRevitCommand      = new RelayCommand<ClashResult>(ShowInRevit);
+        CheckAlignmentCommand   = new RelayCommand(CheckAlignment);
         ZoomToMisalignedCommand = new RelayCommand<MisalignedVoid>(ZoomToMisaligned);
     }
 
-    // ── Observable properties ─────────────────────────────────────────────────
+    // ── Bindable properties ───────────────────────────────────────────────────
 
     private double _marginMm;
     public double MarginMm
@@ -110,7 +99,7 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 "Horizontal uniquement"    => WallOrientationFilter.Horizontal,
                 "Verticaux et horizontaux" => WallOrientationFilter.Both,
-                _                         => WallOrientationFilter.Vertical,
+                _                          => WallOrientationFilter.Vertical,
             };
             OnPropertyChanged();
             _settings.WallOrientation = _wallOrientation;
@@ -134,47 +123,11 @@ public class MainViewModel : INotifyPropertyChanged
 
     // ── Collections ───────────────────────────────────────────────────────────
 
-    public ObservableCollection<ClashResult>     ClashResults         { get; } = [];
-    public ObservableCollection<MisalignedVoid>  MisalignedVoids      { get; } = [];
+    public ObservableCollection<ClashResult>    ClashResults    { get; } = [];
+    public ObservableCollection<MisalignedVoid> MisalignedVoids { get; } = [];
 
-    public ObservableCollection<VoidFamilyEntry> CableTrayFamilies    { get; } = [];
-    public ObservableCollection<VoidFamilyEntry> LadderTrayFamilies   { get; } = [];
-    public ObservableCollection<VoidFamilyEntry> ConduitFamilies      { get; } = [];
-    public ObservableCollection<VoidFamilyEntry> BeamFamilies         { get; } = [];
-
-    // ── Family selection ──────────────────────────────────────────────────────
-
-    private VoidFamilyEntry? _selectedCableTrayFamily;
-    public VoidFamilyEntry? SelectedCableTrayFamily
-    {
-        get => _selectedCableTrayFamily;
-        set { _selectedCableTrayFamily = value; OnPropertyChanged();
-              _settings.LastCableTrayFamilyPath = value?.FilePath; _settings.Save(); }
-    }
-
-    private VoidFamilyEntry? _selectedLadderTrayFamily;
-    public VoidFamilyEntry? SelectedLadderTrayFamily
-    {
-        get => _selectedLadderTrayFamily;
-        set { _selectedLadderTrayFamily = value; OnPropertyChanged();
-              _settings.LastLadderTrayFamilyPath = value?.FilePath; _settings.Save(); }
-    }
-
-    private VoidFamilyEntry? _selectedConduitFamily;
-    public VoidFamilyEntry? SelectedConduitFamily
-    {
-        get => _selectedConduitFamily;
-        set { _selectedConduitFamily = value; OnPropertyChanged();
-              _settings.LastConduitFamilyPath = value?.FilePath; _settings.Save(); }
-    }
-
-    private VoidFamilyEntry? _selectedBeamFamily;
-    public VoidFamilyEntry? SelectedBeamFamily
-    {
-        get => _selectedBeamFamily;
-        set { _selectedBeamFamily = value; OnPropertyChanged();
-              _settings.LastBeamFamilyPath = value?.FilePath; _settings.Save(); }
-    }
+    /// <summary>All configured void families — used as ItemsSource for per-row ComboBox.</summary>
+    public ObservableCollection<VoidFamilyEntry> AllFamilies { get; } = [];
 
     // ── Commands ──────────────────────────────────────────────────────────────
 
@@ -193,6 +146,9 @@ public class MainViewModel : INotifyPropertyChanged
     {
         IsBusy = true;
         StatusMessage = "Détection des conflits…";
+
+        // Unsubscribe from previous results to avoid leaks
+        foreach (var c in ClashResults) c.PropertyChanged -= OnClashPropertyChanged;
         ClashResults.Clear();
 
         try
@@ -200,32 +156,31 @@ public class MainViewModel : INotifyPropertyChanged
             _settings.MarginMm = MarginMm;
             _settings.Save();
 
-            double marginFeet = MarginMm / 304.8;
-
-            var results = ClashDetector.Detect(_doc, marginFeet,
-                              ScanCableTrays, ScanCableTrayFittings, ScanConduits,
-                              _wallOrientation);
+            var results = ClashDetector.Detect(_doc, MarginMm / 304.8,
+                ScanCableTrays, ScanCableTrayFittings, ScanConduits, _wallOrientation);
 
             foreach (var r in results)
+            {
+                AutoAssignFamily(r);
+                r.PropertyChanged += OnClashPropertyChanged;
                 ClashResults.Add(r);
+            }
 
             StatusMessage = ClashResults.Count == 0
-                ? "Aucun conflit trouvé."
+                ? "Aucun conflit trouvé (traversées complètes uniquement)."
                 : $"{ClashResults.Count} conflit(s) trouvé(s). Sélectionnez ceux à traiter.";
         }
         catch (Exception ex)
         {
             StatusMessage = $"Erreur lors de la détection : {ex.Message}";
         }
-        finally
-        {
-            IsBusy = false;
-        }
+        finally { IsBusy = false; }
     }
 
     private void Apply()
     {
-        if (!ClashResults.Any(c => c.IsSelected))
+        var selected = ClashResults.Where(c => c.IsSelected).ToList();
+        if (selected.Count == 0)
         {
             MessageBox.Show("Aucun conflit sélectionné.", "Cable Tray Void Cutter",
                             MessageBoxButton.OK, MessageBoxImage.Information);
@@ -239,40 +194,36 @@ public class MainViewModel : INotifyPropertyChanged
         {
             double marginFeet = MarginMm / 304.8;
 
-            FamilySymbol? ctSym   = null;
-            FamilySymbol? ltSym   = null;
-            FamilySymbol? condSym = null;
-            FamilySymbol? beamSym = null;
+            // Collect unique family paths needed for the selected clashes
+            var uniquePaths = selected
+                .Select(c => c.AssignedFamily?.FilePath)
+                .Where(p => p is not null)
+                .Distinct()
+                .ToList();
 
-            // Load families in their own committed transaction
+            var symbolCache = new Dictionary<string, FamilySymbol>(StringComparer.OrdinalIgnoreCase);
+
             using (var loadTx = new Transaction(_doc, "Charger familles réservations"))
             {
                 loadTx.Start();
-                if (SelectedCableTrayFamily  is not null)
-                    ctSym   = VoidPlacer.LoadFamily(_doc, SelectedCableTrayFamily.FilePath);
-                if (SelectedLadderTrayFamily is not null)
-                    ltSym   = VoidPlacer.LoadFamily(_doc, SelectedLadderTrayFamily.FilePath);
-                if (SelectedConduitFamily    is not null)
-                    condSym = VoidPlacer.LoadFamily(_doc, SelectedConduitFamily.FilePath);
-                if (SelectedBeamFamily       is not null)
-                    beamSym = VoidPlacer.LoadFamily(_doc, SelectedBeamFamily.FilePath);
+                foreach (var path in uniquePaths)
+                {
+                    var sym = VoidPlacer.LoadFamily(_doc, path!);
+                    if (sym is not null) symbolCache[path!] = sym;
+                }
                 loadTx.Commit();
             }
 
             string summary;
-            using (var tx = new Transaction(_doc, "CableTray Void Cutter – Insérer réservations"))
+            using (var tx = new Transaction(_doc, "Insérer réservations câblage"))
             {
                 tx.Start();
-                summary = VoidPlacer.PlaceVoids(
-                    _doc, ClashResults, marginFeet,
-                    ctSym, ltSym, condSym, beamSym,
-                    _placementLog);
+                summary = VoidPlacer.PlaceVoids(_doc, selected, marginFeet,
+                                                symbolCache, _placementLog);
                 tx.Commit();
             }
 
-            // Persist placement log after successful commit
             _placementLog.Save();
-
             StatusMessage = "Terminé.";
             MessageBox.Show(summary, "Cable Tray Void Cutter",
                             MessageBoxButton.OK, MessageBoxImage.Information);
@@ -283,24 +234,13 @@ public class MainViewModel : INotifyPropertyChanged
         {
             StatusMessage = $"Erreur : {ex.Message}";
             MessageBox.Show($"Une erreur s'est produite :\n{ex.Message}",
-                            "Cable Tray Void Cutter",
-                            MessageBoxButton.OK, MessageBoxImage.Error);
+                            "Cable Tray Void Cutter", MessageBoxButton.OK, MessageBoxImage.Error);
         }
-        finally
-        {
-            IsBusy = false;
-        }
+        finally { IsBusy = false; }
     }
 
-    private void SelectAll()
-    {
-        foreach (var c in ClashResults) c.IsSelected = true;
-    }
-
-    private void DeselectAll()
-    {
-        foreach (var c in ClashResults) c.IsSelected = false;
-    }
+    private void SelectAll()  { foreach (var c in ClashResults) c.IsSelected = true; }
+    private void DeselectAll(){ foreach (var c in ClashResults) c.IsSelected = false; }
 
     private void OpenSettings()
     {
@@ -310,225 +250,186 @@ public class MainViewModel : INotifyPropertyChanged
             _settings.Save();
             MarginMm = _settings.MarginMm;
             RefreshFamilyLists();
+            // Re-assign auto families if list changes
+            foreach (var c in ClashResults) AutoAssignFamily(c);
         }
     }
 
+    // ── Per-clash family propagation ──────────────────────────────────────────
+
+    private bool _propagating; // re-entrancy guard
+
     /// <summary>
-    /// Selects elements in Revit, applies a section box if the active view is 3D,
-    /// and zooms to the clash. The 3D view stays rotatable.
+    /// When a selected clash's <see cref="ClashResult.AssignedFamily"/> changes,
+    /// propagate the same family to all other currently-selected clashes.
     /// </summary>
+    private void OnClashPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_propagating) return;
+        if (e.PropertyName != nameof(ClashResult.AssignedFamily)) return;
+        if (sender is not ClashResult changed || !changed.IsSelected) return;
+
+        _propagating = true;
+        try
+        {
+            var family = changed.AssignedFamily;
+            foreach (var c in ClashResults)
+            {
+                if (c != changed && c.IsSelected)
+                    c.AssignedFamily = family;
+            }
+        }
+        finally { _propagating = false; }
+    }
+
+    // ── Auto-assign family based on MEP type ──────────────────────────────────
+
+    /// <summary>
+    /// Picks the best matching family from <see cref="AllFamilies"/> for a clash,
+    /// based on MEP category and ladder flag.
+    /// Priority: exact type match → "Both" → first available.
+    /// </summary>
+    private void AutoAssignFamily(ClashResult clash)
+    {
+        if (AllFamilies.Count == 0) return;
+
+        string targetType = clash.MepCategory switch
+        {
+            MepCategory.Conduit          => "Conduit",
+            MepCategory.CableTrayFitting => clash.IsLadderTray ? "LadderTray" : "CableTray",
+            _                            => clash.IsLadderTray  ? "LadderTray" : "CableTray",
+        };
+
+        // For beams, override with Beam-targeted family if available
+        if (clash.ClashType == ClashType.Beam)
+        {
+            var beamFamily = AllFamilies.FirstOrDefault(f => f.TargetType == "Beam");
+            if (beamFamily is not null)
+            {
+                clash.AssignedFamily = beamFamily;
+                return;
+            }
+        }
+
+        clash.AssignedFamily =
+            AllFamilies.FirstOrDefault(f => f.TargetType == targetType)
+         ?? AllFamilies.FirstOrDefault(f => f.TargetType == "Both" || f.TargetType == "Wall")
+         ?? AllFamilies.First();
+    }
+
+    // ── Zoom / section box ────────────────────────────────────────────────────
+
     private void ShowInRevit(ClashResult? clash)
     {
         if (clash is null) return;
-
         try
         {
             var ids = new List<ElementId> { clash.CableTrayId };
-
-            if (clash.Source == ElementSource.Host)
-                ids.Add(clash.ClashingElementId);
-
+            if (clash.Source == ElementSource.Host) ids.Add(clash.ClashingElementId);
             _uiDoc.Selection.SetElementIds(ids);
 
-            // Build tight bounding box around the involved elements
-            XYZ? minPt = null;
-            XYZ? maxPt = null;
-
-            foreach (var id in ids)
-            {
-                var el = _doc.GetElement(id);
-                var bb = el?.get_BoundingBox(null);
-                if (bb is null) continue;
-
-                if (minPt is null)
-                {
-                    minPt = bb.Min;
-                    maxPt = bb.Max;
-                }
-                else
-                {
-                    minPt = new XYZ(Math.Min(minPt.X, bb.Min.X),
-                                    Math.Min(minPt.Y, bb.Min.Y),
-                                    Math.Min(minPt.Z, bb.Min.Z));
-                    maxPt = new XYZ(Math.Max(maxPt!.X, bb.Max.X),
-                                    Math.Max(maxPt.Y, bb.Max.Y),
-                                    Math.Max(maxPt.Z, bb.Max.Z));
-                }
-            }
-
-            const double pad = 2.0; // ~60 cm
-
-            // ── 3D section box ────────────────────────────────────────────────
-            if (_uiDoc.ActiveView is View3D view3d && minPt is not null && maxPt is not null)
-            {
-                // Build section box with padding; rotation is still freely available
-                var sectionBb = new BoundingBoxXYZ
-                {
-                    Min = new XYZ(minPt.X - pad, minPt.Y - pad, minPt.Z - pad),
-                    Max = new XYZ(maxPt.X + pad, maxPt.Y + pad, maxPt.Z + pad)
-                };
-
-                // Must be inside a transaction to modify the view
-                using var tx = new Transaction(_doc, "Section box – zoom conflit");
-                tx.Start();
-                view3d.SetSectionBox(sectionBb);
-                view3d.IsSectionBoxActive = true;
-                tx.Commit();
-
-                // Zoom the UI to the section box area
-                var uiView3d = _uiDoc.GetOpenUIViews()
-                    .FirstOrDefault(v => v.ViewId == view3d.Id);
-                uiView3d?.ZoomAndCenterRectangle(sectionBb.Min, sectionBb.Max);
-            }
-            else
-            {
-                // ── 2D / plan view zoom ───────────────────────────────────────
-                var uiView = _uiDoc.GetOpenUIViews()
-                    .FirstOrDefault(v => v.ViewId == _uiDoc.ActiveView.Id);
-
-                if (uiView is not null && minPt is not null && maxPt is not null)
-                {
-                    uiView.ZoomAndCenterRectangle(
-                        new XYZ(minPt.X - pad, minPt.Y - pad, minPt.Z),
-                        new XYZ(maxPt.X + pad, maxPt.Y + pad, maxPt.Z));
-                }
-                else
-                {
-                    _uiDoc.GetOpenUIViews().FirstOrDefault()?.ZoomToFit();
-                }
-            }
-
-            StatusMessage = clash.Source == ElementSource.Linked
-                ? $"Sélectionné : {clash.CableTrayName} (élément lié non sélectionnable)"
-                : $"Sélectionné : {clash.DisplayName}";
+            ZoomWithSectionBox(ids, clash.DisplayName);
         }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Impossible de sélectionner les éléments : {ex.Message}";
-        }
+        catch (Exception ex) { StatusMessage = $"Impossible de zoomer : {ex.Message}"; }
     }
 
-    /// <summary>Compares stored MEP positions with current Revit model positions.</summary>
+    private void ZoomToMisaligned(MisalignedVoid? mv)
+    {
+        if (mv is null) return;
+        try
+        {
+            var ids = new List<ElementId>();
+            if (mv.VoidElement is not null) ids.Add(mv.VoidElement.Id);
+            if (mv.MepElement  is not null) ids.Add(mv.MepElement.Id);
+            if (ids.Count > 0) _uiDoc.Selection.SetElementIds(ids);
+
+            ZoomWithSectionBox(ids, $"{mv.VoidName} Δ={mv.DeltaDisplay}");
+        }
+        catch (Exception ex) { StatusMessage = $"Erreur de zoom : {ex.Message}"; }
+    }
+
+    /// <summary>
+    /// Calculates a bounding box from the given element ids, applies a section box
+    /// if the active view is 3D (keeping the view freely rotatable), and zooms.
+    /// Falls back to ZoomAndCenterRectangle for 2D views.
+    /// </summary>
+    private void ZoomWithSectionBox(IEnumerable<ElementId> ids, string statusSuffix)
+    {
+        XYZ? minPt = null, maxPt = null;
+
+        foreach (var id in ids)
+        {
+            var bb = _doc.GetElement(id)?.get_BoundingBox(null);
+            if (bb is null) continue;
+            if (minPt is null) { minPt = bb.Min; maxPt = bb.Max; }
+            else
+            {
+                minPt = new XYZ(Math.Min(minPt.X, bb.Min.X),
+                                Math.Min(minPt.Y, bb.Min.Y),
+                                Math.Min(minPt.Z, bb.Min.Z));
+                maxPt = new XYZ(Math.Max(maxPt!.X, bb.Max.X),
+                                Math.Max(maxPt.Y,  bb.Max.Y),
+                                Math.Max(maxPt.Z,  bb.Max.Z));
+            }
+        }
+
+        const double pad = 2.0; // ~60 cm padding
+
+        if (_uiDoc.ActiveView is View3D view3d && minPt is not null)
+        {
+            var sbb = new BoundingBoxXYZ
+            {
+                Min = new XYZ(minPt.X - pad, minPt.Y - pad, minPt.Z - pad),
+                Max = new XYZ(maxPt!.X + pad, maxPt.Y + pad, maxPt.Z + pad)
+            };
+
+            // Section box must be set inside a transaction
+            using var tx = new Transaction(_doc, "Section box – zoom");
+            tx.Start();
+            view3d.SetSectionBox(sbb);
+            view3d.IsSectionBoxActive = true;
+            tx.Commit();
+
+            // 3D view stays freely rotatable — section box only clips geometry
+            _uiDoc.GetOpenUIViews()
+                  .FirstOrDefault(v => v.ViewId == view3d.Id)
+                  ?.ZoomAndCenterRectangle(sbb.Min, sbb.Max);
+        }
+        else
+        {
+            var uiView = _uiDoc.GetOpenUIViews()
+                .FirstOrDefault(v => v.ViewId == _uiDoc.ActiveView.Id);
+            if (uiView is not null && minPt is not null)
+                uiView.ZoomAndCenterRectangle(
+                    new XYZ(minPt.X - pad, minPt.Y - pad, minPt.Z),
+                    new XYZ(maxPt!.X + pad, maxPt.Y + pad, maxPt.Z));
+            else
+                _uiDoc.GetOpenUIViews().FirstOrDefault()?.ZoomToFit();
+        }
+
+        StatusMessage = statusSuffix;
+    }
+
+    // ── Alignment checker ─────────────────────────────────────────────────────
+
     private void CheckAlignment()
     {
         MisalignedVoids.Clear();
-
         var results = VoidAlignmentChecker.Check(_doc, _placementLog);
-        foreach (var mv in results)
-            MisalignedVoids.Add(mv);
+        foreach (var mv in results) MisalignedVoids.Add(mv);
 
         StatusMessage = MisalignedVoids.Count == 0
             ? "Toutes les réservations sont alignées."
             : $"{MisalignedVoids.Count} réservation(s) à réaligner.";
     }
 
-    /// <summary>Zooms to a misaligned void in the active view.</summary>
-    private void ZoomToMisaligned(MisalignedVoid? mv)
-    {
-        if (mv is null) return;
-
-        try
-        {
-            var ids = new List<ElementId>();
-            if (mv.VoidElement  is not null) ids.Add(mv.VoidElement.Id);
-            if (mv.MepElement   is not null) ids.Add(mv.MepElement.Id);
-            if (ids.Count > 0) _uiDoc.Selection.SetElementIds(ids);
-
-            XYZ? minPt = null, maxPt = null;
-            foreach (var id in ids)
-            {
-                var bb = _doc.GetElement(id)?.get_BoundingBox(null);
-                if (bb is null) continue;
-                if (minPt is null) { minPt = bb.Min; maxPt = bb.Max; }
-                else
-                {
-                    minPt = new XYZ(Math.Min(minPt.X, bb.Min.X),
-                                    Math.Min(minPt.Y, bb.Min.Y),
-                                    Math.Min(minPt.Z, bb.Min.Z));
-                    maxPt = new XYZ(Math.Max(maxPt!.X, bb.Max.X),
-                                    Math.Max(maxPt.Y, bb.Max.Y),
-                                    Math.Max(maxPt.Z, bb.Max.Z));
-                }
-            }
-
-            const double pad = 2.0;
-
-            if (_uiDoc.ActiveView is View3D view3d && minPt is not null && maxPt is not null)
-            {
-                var sectionBb = new BoundingBoxXYZ
-                {
-                    Min = new XYZ(minPt.X - pad, minPt.Y - pad, minPt.Z - pad),
-                    Max = new XYZ(maxPt.X + pad, maxPt.Y + pad, maxPt.Z + pad)
-                };
-
-                using var tx = new Transaction(_doc, "Section box – réservation désalignée");
-                tx.Start();
-                view3d.SetSectionBox(sectionBb);
-                view3d.IsSectionBoxActive = true;
-                tx.Commit();
-
-                _uiDoc.GetOpenUIViews()
-                    .FirstOrDefault(v => v.ViewId == view3d.Id)
-                    ?.ZoomAndCenterRectangle(sectionBb.Min, sectionBb.Max);
-            }
-            else
-            {
-                var uiView = _uiDoc.GetOpenUIViews()
-                    .FirstOrDefault(v => v.ViewId == _uiDoc.ActiveView.Id);
-                if (uiView is not null && minPt is not null && maxPt is not null)
-                    uiView.ZoomAndCenterRectangle(
-                        new XYZ(minPt.X - pad, minPt.Y - pad, minPt.Z),
-                        new XYZ(maxPt.X + pad, maxPt.Y + pad, maxPt.Z));
-            }
-
-            StatusMessage = $"Désalignement : {mv.VoidName}  Δ = {mv.DeltaDisplay}";
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Erreur de zoom : {ex.Message}";
-        }
-    }
-
-    // ── Family list refresh ───────────────────────────────────────────────────
+    // ── Family list ───────────────────────────────────────────────────────────
 
     private void RefreshFamilyLists()
     {
-        CableTrayFamilies.Clear();
-        LadderTrayFamilies.Clear();
-        ConduitFamilies.Clear();
-        BeamFamilies.Clear();
-
+        AllFamilies.Clear();
         foreach (var f in _settings.VoidFamilies)
-        {
-            switch (f.TargetType)
-            {
-                case "CableTray":
-                    CableTrayFamilies.Add(f);
-                    break;
-                case "LadderTray":
-                    LadderTrayFamilies.Add(f);
-                    break;
-                case "Conduit":
-                    ConduitFamilies.Add(f);
-                    break;
-                case "Beam":
-                    BeamFamilies.Add(f);
-                    break;
-                case "Wall":
-                    // Legacy: wall families appear in all three wall-type combos
-                    CableTrayFamilies.Add(f);
-                    LadderTrayFamilies.Add(f);
-                    ConduitFamilies.Add(f);
-                    break;
-                case "Both":
-                default:
-                    CableTrayFamilies.Add(f);
-                    LadderTrayFamilies.Add(f);
-                    ConduitFamilies.Add(f);
-                    BeamFamilies.Add(f);
-                    break;
-            }
-        }
+            AllFamilies.Add(f);
     }
 
     // ── INotifyPropertyChanged ────────────────────────────────────────────────

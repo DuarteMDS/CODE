@@ -10,7 +10,6 @@ namespace CableTrayVoidCutter.UI;
 /// <summary>Code-behind for <see cref="MainWindow"/>.</summary>
 public partial class MainWindow : Window
 {
-    // Index of the last row clicked with Ctrl or Shift (for range-select)
     private int _lastClickedIndex = -1;
 
     public MainWindow(UIDocument uiDoc, AppSettings settings)
@@ -19,15 +18,16 @@ public partial class MainWindow : Window
         DataContext = new MainViewModel(uiDoc, settings);
     }
 
-    private void CloseButton_Click(object sender, RoutedEventArgs e) =>
-        Close();
+    private void CloseButton_Click(object sender, RoutedEventArgs e) => Close();
 
     // ── Ctrl / Shift + click multi-select ─────────────────────────────────────
 
     /// <summary>
-    /// Handles Ctrl+Click (toggle individual row) and Shift+Click (range select)
-    /// on the clash DataGrid, updating the IsSelected flag on each ClashResult.
-    /// Standard click (no modifier) is ignored — the built-in checkbox handles it.
+    /// Ctrl+Click → toggle individual row.
+    /// Shift+Click → range-select from last clicked.
+    /// Plain click is ignored (checkbox handles it).
+    /// Propagation of AssignedFamily changes to all selected rows is handled in
+    /// <see cref="MainViewModel.OnClashPropertyChanged"/>.
     /// </summary>
     private void ClashGrid_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
@@ -35,36 +35,31 @@ public partial class MainWindow : Window
         bool shift = Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift);
         if (!ctrl && !shift) return;
 
-        // Walk up the visual tree from the clicked element to find the DataGridRow
         var row = FindAncestor<DataGridRow>(e.OriginalSource as DependencyObject);
         if (row?.DataContext is not ClashResult clash) return;
 
         var vm = DataContext as MainViewModel;
         if (vm is null) return;
 
-        int clickedIndex = vm.ClashResults.IndexOf(clash);
-        if (clickedIndex < 0) return;
+        int idx = vm.ClashResults.IndexOf(clash);
+        if (idx < 0) return;
 
         if (ctrl)
         {
             clash.IsSelected  = !clash.IsSelected;
-            _lastClickedIndex = clickedIndex;
+            _lastClickedIndex = idx;
         }
         else // shift
         {
             int anchor = _lastClickedIndex >= 0 ? _lastClickedIndex : 0;
-            int start  = Math.Min(anchor, clickedIndex);
-            int end    = Math.Max(anchor, clickedIndex);
-
+            int start  = Math.Min(anchor, idx);
+            int end    = Math.Max(anchor, idx);
             for (int i = start; i <= end; i++)
                 vm.ClashResults[i].IsSelected = true;
         }
 
-        // Prevent the DataGrid from changing its row-selection state
-        e.Handled = true;
+        e.Handled = true; // prevent DataGrid from changing row selection highlight
     }
-
-    // ── Visual tree helper ────────────────────────────────────────────────────
 
     private static T? FindAncestor<T>(DependencyObject? obj) where T : DependencyObject
     {
