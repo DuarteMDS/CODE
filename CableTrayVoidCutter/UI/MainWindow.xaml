@@ -128,8 +128,11 @@
             <TextBox Text="{Binding MarginMm, UpdateSourceTrigger=PropertyChanged}"
                      Width="55" Margin="6,0,4,0" VerticalAlignment="Center"/>
             <TextBlock Text="mm" VerticalAlignment="Center"/>
-            <TextBlock Text="   ℹ Ctrl+clic = toggle · Shift+clic = plage · Changement de famille → propagé à toutes les lignes sélectionnées"
-                       VerticalAlignment="Center" Foreground="#666" FontSize="10" Margin="12,0,0,0"/>
+            <TextBlock VerticalAlignment="Center" Foreground="#666" FontSize="10" Margin="12,0,0,0">
+                ℹ Ctrl+clic = toggle · Shift+clic = plage
+                · <Run Foreground="#2E7D32" FontWeight="SemiBold">✓ Placé</Run> = déjà traité (décoché auto)
+                · <Run Foreground="#BF360C" FontWeight="SemiBold">⚠ Obsolète</Run> = MEP déplacé depuis le placement
+            </TextBlock>
         </StackPanel>
 
         <!-- ── Row 3: Clash list ────────────────────────────────────────────── -->
@@ -153,6 +156,20 @@
                           FontSize="11"
                           PreviewMouseLeftButtonDown="ClashGrid_PreviewMouseLeftButtonDown">
 
+                    <!-- Row background: green tint = Placed, orange tint = Outdated -->
+                    <DataGrid.RowStyle>
+                        <Style TargetType="DataGridRow">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding OpeningStatus}" Value="Placed">
+                                    <Setter Property="Background" Value="#EDF7ED"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding OpeningStatus}" Value="Outdated">
+                                    <Setter Property="Background" Value="#FFF3E0"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DataGrid.RowStyle>
+
                     <DataGrid.Columns>
 
                         <!-- ── Checkbox ── -->
@@ -162,6 +179,32 @@
                                     <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay,
                                                           UpdateSourceTrigger=PropertyChanged}"
                                               HorizontalAlignment="Center"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+
+                        <!-- ── Status (opening lifecycle) ── -->
+                        <DataGridTemplateColumn Width="82" Header="Statut" IsReadOnly="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding StatusDisplay}"
+                                               FontWeight="SemiBold" FontSize="10"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Foreground" Value="#888"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding OpeningStatus}" Value="Placed">
+                                                        <Setter Property="Foreground" Value="#2E7D32"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding OpeningStatus}" Value="Outdated">
+                                                        <Setter Property="Foreground" Value="#BF360C"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>

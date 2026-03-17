@@ -153,13 +153,18 @@ public class MainViewModel : INotifyPropertyChanged
                 ScanCableTrays, ScanCableTrayFittings, ScanConduits, _wallOrientation);
 
             foreach (var r in results)
-            {
                 ClashResults.Add(r);
-            }
+
+            EnrichWithStatus(ClashResults);
+
+            int pending  = ClashResults.Count(c => c.OpeningStatus == OpeningStatus.None);
+            int placed   = ClashResults.Count(c => c.OpeningStatus == OpeningStatus.Placed);
+            int outdated = ClashResults.Count(c => c.OpeningStatus == OpeningStatus.Outdated);
 
             StatusMessage = ClashResults.Count == 0
                 ? "Aucun conflit trouvé (traversées complètes uniquement)."
-                : $"{ClashResults.Count} conflit(s) trouvé(s). Sélectionnez ceux à traiter.";
+                : $"{ClashResults.Count} conflit(s) — " +
+                  $"{pending} en attente · {placed} placé(s) · {outdated} obsolète(s).";
         }
         catch (Exception ex)
         {
@@ -346,6 +351,61 @@ public class MainViewModel : INotifyPropertyChanged
         StatusMessage = MisalignedVoids.Count == 0
             ? "Toutes les réservations sont alignées."
             : $"{MisalignedVoids.Count} réservation(s) à réaligner.";
+    }
+
+    // ── Opening lifecycle enrichment ──────────────────────────────────────────
+
+    /// <summary>
+    /// After detection, cross-references each clash against the placement log to set
+    /// OpeningStatus: None / Placed / Outdated.
+    /// Automatically deselects already-placed (up-to-date) clashes so users only
+    /// need to act on new and outdated ones.
+    /// </summary>
+    private void EnrichWithStatus(IEnumerable<ClashResult> clashes)
+    {
+        const double ThreshFeet = 5.0 / 304.8; // 5 mm — small moves are noise
+        string docPath = _doc.PathName;
+
+        foreach (var clash in clashes)
+        {
+            var rec = _placementLog.FindByMepHost(
+                clash.CableTrayId.Value,
+                clash.ClashingElementId.Value,
+                docPath);
+
+            if (rec is null)
+            {
+                clash.OpeningStatus = OpeningStatus.None;
+                clash.IsSelected    = true;
+                continue;
+            }
+
+            // Check whether the MEP element has moved since placement
+            var mepBb = _doc.GetElement(clash.CableTrayId)?.get_BoundingBox(null);
+            if (mepBb is null)
+            {
+                clash.OpeningStatus = OpeningStatus.Placed;
+                clash.IsSelected    = false;
+                continue;
+            }
+
+            var current = new XYZ(
+                (mepBb.Min.X + mepBb.Max.X) / 2,
+                (mepBb.Min.Y + mepBb.Max.Y) / 2,
+                (mepBb.Min.Z + mepBb.Max.Z) / 2);
+            var stored = new XYZ(rec.MepX, rec.MepY, rec.MepZ);
+
+            if (current.DistanceTo(stored) > ThreshFeet)
+            {
+                clash.OpeningStatus = OpeningStatus.Outdated;
+                clash.IsSelected    = true;   // flag for user to re-run
+            }
+            else
+            {
+                clash.OpeningStatus = OpeningStatus.Placed;
+                clash.IsSelected    = false;  // already done — skip by default
+            }
+        }
     }
 
     // ── INotifyPropertyChanged ────────────────────────────────────────────────

@@ -10,6 +10,20 @@ public enum MepCategory   { CableTray, CableTrayFitting, Conduit }
 public enum ClashType     { Wall, Beam, Floor }
 
 /// <summary>
+/// Lifecycle status of the opening for a given clash — updated after detection
+/// by cross-referencing the placement log.
+/// </summary>
+public enum OpeningStatus
+{
+    /// <summary>No opening has been placed for this clash yet.</summary>
+    None,
+    /// <summary>An opening has been placed and the MEP element hasn't moved since.</summary>
+    Placed,
+    /// <summary>An opening was placed but the MEP element has since moved (needs update).</summary>
+    Outdated
+}
+
+/// <summary>
 /// A single detected collision between a MEP element and a structural element.
 /// </summary>
 public class ClashResult : INotifyPropertyChanged
@@ -39,6 +53,33 @@ public class ClashResult : INotifyPropertyChanged
     // ── Intersection ─────────────────────────────────────────────────────────
     public Solid? IntersectionSolid    { get; set; }
     public XYZ    IntersectionMidPoint { get; set; } = XYZ.Zero;
+
+    // ── Opening lifecycle ─────────────────────────────────────────────────────
+
+    private OpeningStatus _openingStatus = OpeningStatus.None;
+
+    /// <summary>
+    /// Lifecycle state computed after each detection run by cross-referencing
+    /// the placement log with the current MEP element position.
+    /// </summary>
+    public OpeningStatus OpeningStatus
+    {
+        get => _openingStatus;
+        set
+        {
+            _openingStatus = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(StatusDisplay));
+        }
+    }
+
+    /// <summary>Human-readable status label used in the grid.</summary>
+    public string StatusDisplay => _openingStatus switch
+    {
+        OpeningStatus.Placed   => "✓ Placé",
+        OpeningStatus.Outdated => "⚠ Obsolète",
+        _                      => "—"
+    };
 
     // ── UI state ──────────────────────────────────────────────────────────────
     private bool _isSelected = true;

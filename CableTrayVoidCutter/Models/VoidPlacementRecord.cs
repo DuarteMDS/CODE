@@ -5,8 +5,9 @@ using System.Text.Json.Serialization;
 namespace CableTrayVoidCutter.Models;
 
 /// <summary>
-/// Persisted record of a single placed void and the MEP element it was created for.
-/// Used to detect voids that need realignment after MEP elements move.
+/// Persisted record of a single placed void and the MEP/host pair it was created for.
+/// Used to detect duplicate placements and to identify voids that need realignment
+/// after MEP elements move.
 /// </summary>
 public class VoidPlacementRecord
 {
@@ -15,6 +16,9 @@ public class VoidPlacementRecord
 
     /// <summary>ElementId.Value of the source MEP element.</summary>
     public long     MepElementId   { get; set; }
+
+    /// <summary>ElementId.Value of the host structural element (wall, floor, beam).</summary>
+    public long     HostElementId  { get; set; }
 
     /// <summary>X coordinate of the MEP element centre at insertion time (feet).</summary>
     public double   MepX           { get; set; }
@@ -83,14 +87,25 @@ public class VoidPlacementLog
         catch { /* best-effort */ }
     }
 
-    /// <summary>Adds or updates a record for the given void/MEP pair.</summary>
+    /// <summary>Adds or updates a record keyed by MEP+Host pair.</summary>
     public void Upsert(VoidPlacementRecord record)
     {
-        var existing = Records.FirstOrDefault(
-            r => r.VoidElementId == record.VoidElementId &&
-                 r.DocumentPath  == record.DocumentPath);
-
-        if (existing is not null) Records.Remove(existing);
+        // Remove any prior record for the same MEP↔Host clash
+        Records.RemoveAll(r =>
+            r.MepElementId  == record.MepElementId  &&
+            r.HostElementId == record.HostElementId &&
+            string.Equals(r.DocumentPath, record.DocumentPath,
+                          StringComparison.OrdinalIgnoreCase));
         Records.Add(record);
     }
+
+    /// <summary>
+    /// Returns the placement record for a specific MEP↔Host clash, or null if none.
+    /// This is the primary key used to detect whether a clash already has an opening.
+    /// </summary>
+    public VoidPlacementRecord? FindByMepHost(long mepId, long hostId, string docPath) =>
+        Records.FirstOrDefault(r =>
+            r.MepElementId  == mepId  &&
+            r.HostElementId == hostId &&
+            string.Equals(r.DocumentPath, docPath, StringComparison.OrdinalIgnoreCase));
 }

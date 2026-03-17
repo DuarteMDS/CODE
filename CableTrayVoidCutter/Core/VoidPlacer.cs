@@ -386,6 +386,7 @@ public static class VoidPlacer
         {
             VoidElementId = placedId.Value,
             MepElementId  = clash.CableTrayId.Value,
+            HostElementId = clash.ClashingElementId.Value,   // key for lifecycle lookup
             MepX          = c.X, MepY = c.Y, MepZ = c.Z,
             DocumentPath  = docPath,
             Timestamp     = DateTime.UtcNow
