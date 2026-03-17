@@ -201,26 +201,6 @@
                                             Binding="{Binding LinkName}"
                                             Width="100" IsReadOnly="True"/>
 
-                        <!--
-                            ── Famille de réservation (par ligne) ──────────────────
-                            Auto-assigned from settings; editable per row.
-                            Changing on a selected row propagates to all other selected rows.
-                        -->
-                        <DataGridTemplateColumn Header="Famille réservation" Width="160">
-                            <DataGridTemplateColumn.CellTemplate>
-                                <DataTemplate>
-                                    <ComboBox
-                                        ItemsSource="{Binding DataContext.AllFamilies,
-                                                      RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                        SelectedItem="{Binding AssignedFamily, Mode=TwoWay,
-                                                       UpdateSourceTrigger=PropertyChanged}"
-                                        DisplayMemberPath="Name"
-                                        ToolTip="Famille auto-sélectionnée selon le type MEP. Modifier ici pour changer la famille de toutes les lignes sélectionnées."
-                                        FontSize="10"/>
-                                </DataTemplate>
-                            </DataGridTemplateColumn.CellTemplate>
-                        </DataGridTemplateColumn>
-
                         <!-- ── Zoom ── -->
                         <DataGridTemplateColumn Width="34" Header="🔍">
                             <DataGridTemplateColumn.CellTemplate>

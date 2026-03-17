@@ -35,8 +35,6 @@ public class MainViewModel : INotifyPropertyChanged
         ScanConduits          = settings.ScanConduits;
         _wallOrientation      = settings.WallOrientation;
 
-        RefreshFamilyLists();
-
         DetectClashesCommand    = new RelayCommand(DetectClashes);
         ApplyCommand            = new RelayCommand(Apply,
                                       () => ClashResults.Any(c => c.IsSelected));
@@ -126,9 +124,6 @@ public class MainViewModel : INotifyPropertyChanged
     public ObservableCollection<ClashResult>    ClashResults    { get; } = [];
     public ObservableCollection<MisalignedVoid> MisalignedVoids { get; } = [];
 
-    /// <summary>All configured void families — used as ItemsSource for per-row ComboBox.</summary>
-    public ObservableCollection<VoidFamilyEntry> AllFamilies { get; } = [];
-
     // ── Commands ──────────────────────────────────────────────────────────────
 
     public ICommand DetectClashesCommand    { get; }
@@ -147,8 +142,6 @@ public class MainViewModel : INotifyPropertyChanged
         IsBusy = true;
         StatusMessage = "Détection des conflits…";
 
-        // Unsubscribe from previous results to avoid leaks
-        foreach (var c in ClashResults) c.PropertyChanged -= OnClashPropertyChanged;
         ClashResults.Clear();
 
         try
@@ -161,8 +154,6 @@ public class MainViewModel : INotifyPropertyChanged
 
             foreach (var r in results)
             {
-                AutoAssignFamily(r);
-                r.PropertyChanged += OnClashPropertyChanged;
                 ClashResults.Add(r);
             }
 
@@ -194,9 +185,9 @@ public class MainViewModel : INotifyPropertyChanged
         {
             double marginFeet = MarginMm / 304.8;
 
-            // Collect unique family paths needed for the selected clashes
-            var uniquePaths = selected
-                .Select(c => c.AssignedFamily?.FilePath)
+            // Collect unique family paths from settings
+            var uniquePaths = _settings.VoidFamilies
+                .Select(f => f.FilePath)
                 .Where(p => p is not null)
                 .Distinct()
                 .ToList();
@@ -219,7 +210,7 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 tx.Start();
                 summary = VoidPlacer.PlaceVoids(_doc, selected, marginFeet,
-                                                symbolCache, _placementLog);
+                                                _settings.VoidFamilies, symbolCache, _placementLog);
                 tx.Commit();
             }
 
@@ -249,72 +240,7 @@ public class MainViewModel : INotifyPropertyChanged
         {
             _settings.Save();
             MarginMm = _settings.MarginMm;
-            RefreshFamilyLists();
-            // Re-assign auto families if list changes
-            foreach (var c in ClashResults) AutoAssignFamily(c);
         }
-    }
-
-    // ── Per-clash family propagation ──────────────────────────────────────────
-
-    private bool _propagating; // re-entrancy guard
-
-    /// <summary>
-    /// When a selected clash's <see cref="ClashResult.AssignedFamily"/> changes,
-    /// propagate the same family to all other currently-selected clashes.
-    /// </summary>
-    private void OnClashPropertyChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (_propagating) return;
-        if (e.PropertyName != nameof(ClashResult.AssignedFamily)) return;
-        if (sender is not ClashResult changed || !changed.IsSelected) return;
-
-        _propagating = true;
-        try
-        {
-            var family = changed.AssignedFamily;
-            foreach (var c in ClashResults)
-            {
-                if (c != changed && c.IsSelected)
-                    c.AssignedFamily = family;
-            }
-        }
-        finally { _propagating = false; }
-    }
-
-    // ── Auto-assign family based on MEP type ──────────────────────────────────
-
-    /// <summary>
-    /// Picks the best matching family from <see cref="AllFamilies"/> for a clash,
-    /// based on MEP category and ladder flag.
-    /// Priority: exact type match → "Both" → first available.
-    /// </summary>
-    private void AutoAssignFamily(ClashResult clash)
-    {
-        if (AllFamilies.Count == 0) return;
-
-        string targetType = clash.MepCategory switch
-        {
-            MepCategory.Conduit          => "Conduit",
-            MepCategory.CableTrayFitting => clash.IsLadderTray ? "LadderTray" : "CableTray",
-            _                            => clash.IsLadderTray  ? "LadderTray" : "CableTray",
-        };
-
-        // For beams, override with Beam-targeted family if available
-        if (clash.ClashType == ClashType.Beam)
-        {
-            var beamFamily = AllFamilies.FirstOrDefault(f => f.TargetType == "Beam");
-            if (beamFamily is not null)
-            {
-                clash.AssignedFamily = beamFamily;
-                return;
-            }
-        }
-
-        clash.AssignedFamily =
-            AllFamilies.FirstOrDefault(f => f.TargetType == targetType)
-         ?? AllFamilies.FirstOrDefault(f => f.TargetType == "Both" || f.TargetType == "Wall")
-         ?? AllFamilies.First();
     }
 
     // ── Zoom / section box ────────────────────────────────────────────────────
@@ -421,15 +347,6 @@ public class MainViewModel : INotifyPropertyChanged
         StatusMessage = MisalignedVoids.Count == 0
             ? "Toutes les réservations sont alignées."
             : $"{MisalignedVoids.Count} réservation(s) à réaligner.";
-    }
-
-    // ── Family list ───────────────────────────────────────────────────────────
-
-    private void RefreshFamilyLists()
-    {
-        AllFamilies.Clear();
-        foreach (var f in _settings.VoidFamilies)
-            AllFamilies.Add(f);
     }
 
     // ── INotifyPropertyChanged ────────────────────────────────────────────────

@@ -4,31 +4,21 @@ using Autodesk.Revit.DB;
 
 namespace CableTrayVoidCutter.Models;
 
-/// <summary>
-/// Identifies whether the clashing host element lives in the active document
-/// or inside a linked Revit model.
-/// </summary>
 public enum ElementSource { Host, Linked }
-
-/// <summary>Cross-section shape of the MEP element.</summary>
-public enum TrayShape { Rectangular, Circular }
-
-/// <summary>Type of the MEP source element.</summary>
-public enum MepCategory { CableTray, CableTrayFitting, Conduit }
+public enum TrayShape     { Rectangular, Circular }
+public enum MepCategory   { CableTray, CableTrayFitting, Conduit }
+public enum ClashType     { Wall, Beam, Floor }
 
 /// <summary>
-/// Represents a single detected collision between a MEP element and a
-/// Wall / Structural Beam / Floor (host or linked model).
+/// A single detected collision between a MEP element and a structural element.
 /// </summary>
 public class ClashResult : INotifyPropertyChanged
 {
-    // ── MEP source element ────────────────────────────────────────────────────
+    // ── MEP source ────────────────────────────────────────────────────────────
     public ElementId   CableTrayId   { get; set; } = ElementId.InvalidElementId;
     public string      CableTrayName { get; set; } = string.Empty;
     public MepCategory MepCategory   { get; set; } = MepCategory.CableTray;
-
-    /// <summary>True when the tray family name/type indicates an échelle à câbles.</summary>
-    public bool IsLadderTray { get; set; }
+    public bool        IsLadderTray  { get; set; }
 
     // ── Clashing element ─────────────────────────────────────────────────────
     public ElementId     ClashingElementId   { get; set; } = ElementId.InvalidElementId;
@@ -40,7 +30,7 @@ public class ClashResult : INotifyPropertyChanged
     public string     LinkName       { get; set; } = string.Empty;
     public Transform  LinkTransform  { get; set; } = Transform.Identity;
 
-    // ── MEP geometry (internal feet) ─────────────────────────────────────────
+    // ── MEP geometry ──────────────────────────────────────────────────────────
     public TrayShape TrayShape    { get; set; } = TrayShape.Rectangular;
     public double    TrayWidth    { get; set; }
     public double    TrayHeight   { get; set; }
@@ -50,8 +40,7 @@ public class ClashResult : INotifyPropertyChanged
     public Solid? IntersectionSolid    { get; set; }
     public XYZ    IntersectionMidPoint { get; set; } = XYZ.Zero;
 
-    // ── UI state (with INotifyPropertyChanged) ────────────────────────────────
-
+    // ── UI state ──────────────────────────────────────────────────────────────
     private bool _isSelected = true;
     public bool IsSelected
     {
@@ -59,19 +48,7 @@ public class ClashResult : INotifyPropertyChanged
         set { _isSelected = value; OnPropertyChanged(); }
     }
 
-    /// <summary>
-    /// Void family entry assigned to this clash (auto-selected or overridden per row).
-    /// When changed on a selected row the ViewModel propagates it to all other selected rows.
-    /// </summary>
-    private VoidFamilyEntry? _assignedFamily;
-    public VoidFamilyEntry? AssignedFamily
-    {
-        get => _assignedFamily;
-        set { _assignedFamily = value; OnPropertyChanged(); }
-    }
-
-    // ── Display helpers ───────────────────────────────────────────────────────
-
+    // ── Display ───────────────────────────────────────────────────────────────
     public string DisplayName =>
         $"{CableTrayName}  ↔  {ClashingElementName}" +
         (Source == ElementSource.Linked ? $"  [{LinkName}]" : "  [Host]");
@@ -96,10 +73,7 @@ public class ClashResult : INotifyPropertyChanged
         _                            => "MEP"
     };
 
-    // ── INotifyPropertyChanged ────────────────────────────────────────────────
     public event PropertyChangedEventHandler? PropertyChanged;
-    private void OnPropertyChanged([CallerMemberName] string? name = null) =>
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    private void OnPropertyChanged([CallerMemberName] string? n = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(n));
 }
-
-public enum ClashType { Wall, Beam, Floor }
