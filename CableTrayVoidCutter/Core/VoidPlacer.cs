@@ -234,7 +234,7 @@ public static class VoidPlacer
         double depth = beamBb is not null ? Math.Abs(beamBb.Max.Y - beamBb.Min.Y) : 0.5;
 
         SetMepDimensions(instance, clash, margin);
-        SetDim(instance, depth, "GA_Reservation Profondeur", "Profondeur", "Epaisseur", "Épaisseur", "Depth");
+        SetDim(instance, depth, "GA_Reservation Profondeur", "Profondeur", "GA_Depth", "Depth", "Epaisseur", "Épaisseur");
 
         try { InstanceVoidCutUtils.AddInstanceVoidCut(doc, beam, instance); } catch { }
 
@@ -299,7 +299,7 @@ public static class VoidPlacer
 
         // Depth = actual structural thickness
         double depth = GetStructuralDepth(structElem, clash.ClashType, clash.LinkTransform);
-        SetDim(instance, depth, "GA_Reservation Profondeur", "Profondeur", "Epaisseur", "Épaisseur", "Depth");
+        SetDim(instance, depth, "GA_Reservation Profondeur", "Profondeur", "GA_Depth", "Depth", "Epaisseur", "Épaisseur");
 
         SetText(instance, "Comments", $"RESERVATION – lien: {clash.LinkName}");
 
@@ -487,22 +487,23 @@ public static class VoidPlacer
         if (clash.TrayShape == TrayShape.Circular)
         {
             double d = clash.TrayDiameter + 2 * margin;
-            // Circle families: try diameter param first, then width/height equivalents
+            // Circle families (CEG_Resa Wall Circle uses GA_Width / GA_Height)
             SetDim(inst, d,
                 "GA_Reservation Largeur", "Largeur",
-                "Diametre", "Diamètre", "Diameter",
-                "Width");
+                "GA_Width", "Width",
+                "Diametre", "Diamètre", "Diameter");
             SetDim(inst, d,
                 "GA_Reservation Longueur", "Longueur",
-                "Diametre", "Diamètre", "Diameter",
-                "Height");
+                "GA_Height", "Height",
+                "Diametre", "Diamètre", "Diameter");
         }
         else
         {
+            // Rectangular families (CEG_Resa Wall Rectangular uses GA_Width / GA_Height)
             SetDim(inst, clash.TrayWidth  + 2 * margin,
-                "GA_Reservation Largeur", "Largeur", "Width");
+                "GA_Reservation Largeur", "Largeur", "GA_Width", "Width");
             SetDim(inst, clash.TrayHeight + 2 * margin,
-                "GA_Reservation Longueur", "Longueur", "Height");
+                "GA_Reservation Longueur", "Longueur", "GA_Height", "Height");
         }
     }
 
